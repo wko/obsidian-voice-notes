@@ -1,0 +1,9 @@
+{
+  "id": "voice-append",
+  "name": "Voice Append",
+  "version": "0.3.0",
+  "minAppVersion": "1.11.4",
+  "description": "Record thoughts, clean them up with OpenAI and append them to the current note.",
+  "author": "Walter Forkel",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,22 @@
+{
+  "name": "obsidian-voice-append",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && node build.mjs",
+    "dev": "node build.mjs --watch",
+    "release": "tsc --noEmit && node build.mjs --release",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "fake-indexeddb": "^6.0.0",
+    "obsidian": "1.13.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
