@@ -35,6 +35,7 @@ Nur der Lab-Build enthält den Befehl **Voice Append: Lab: Test-Ergänzung ohne 
 
 - TypeScript ohne React. Ein optionaler, strikt auf macOS-Desktop begrenzter Electron-Aufruf fragt die Mikrofonfreigabe beim ersten Zugriff an, wie Obsidian selbst. Auf iPhone/Android wird dieser Pfad nicht geladen; Aufnahme und Verarbeitung verwenden dort ausschließlich Web-/Obsidian-APIs.
 - Zentriertes CodeMirror-Widget am Dokumentende im Editor; separater, beim Rendern wiederhergestellter Footer in der Leseansicht. Nach einer Aufnahme scrollt die geöffnete Zielnotiz zum Verarbeitungsstatus. Der DOM-Selektor der Leseansicht ist eine Kompatibilitätsstelle, die bei Obsidian-Updates geprüft werden muss.
+- Der Aufnahmebefehl trägt ein Mikrofon-Symbol und kann deshalb in Obsidian zur mobilen Werkzeugleiste hinzugefügt werden. Der Inline-Button lässt sich separat ausblenden; laufender Status und Fehler bleiben am Notizende sichtbar.
 - Getrennte `Transcriber`- und `Cleaner`-Schnittstellen. Ein weiterer Provider kann diese implementieren, ohne Aufnahme oder Notizschreiber zu ändern. Eine Provider-Auswahloberfläche ist noch nicht implementiert.
 - Direkte OpenAI-Requests über Obsidian `requestUrl`, einschließlich binärem Multipart-Upload auf mobilen Geräten; Responses API mit `store: false` und strukturiertem Ergebnis.
 - Der Bereinigungs-Prompt wird pro Aufnahme eingefroren. Bereits erfolgreiche Transkription/Bereinigung wird beim Wiederholen nicht erneut ausgeführt.

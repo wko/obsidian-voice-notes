@@ -1,6 +1,8 @@
 .voice-append-footer { width: 100%; box-sizing: border-box; padding: 20px 0 32px; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 12px; clear: both; }
 .voice-append-progress { justify-self: stretch; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-muted); font-size: var(--font-small); }
 .voice-append-progress[hidden] { display: none; }
+.voice-append-hide-inline-button .voice-append-button { display: none; }
+.voice-append-hide-inline-button .voice-append-footer:not(.has-progress) { display: none; }
 .voice-append-progress.is-error { color: var(--text-error); }
 .voice-append-spinner, .voice-append-status-icon { display: inline-flex; width: 18px; height: 18px; }
 .voice-append-spinner { color: var(--text-accent); animation: voice-append-spin 1s linear infinite; }

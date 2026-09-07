@@ -8,6 +8,8 @@ const english = {
   'Speichern': 'Save',
   'Status anzeigen': 'Show status',
   'Gedanken ergänzen': 'Append via voice',
+  'Aufnahme-Button in Notizen anzeigen': 'Show recording button in notes',
+  'Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.': 'The recording command remains available from the command palette, ribbon and mobile toolbar.',
   'Aufnahmen und Status öffnen': 'Open recordings and status',
   'Lab: Test-Ergänzung ohne Mikrofon und API': 'Lab: Append sample without microphone or API',
   'Mikrofon wird geöffnet …': 'Opening microphone…',

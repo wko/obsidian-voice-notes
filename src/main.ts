@@ -9,9 +9,9 @@ import { ApiKey } from './api-key';
 import { createAppendPlan, inspectAppend, applyAppendPlan, removeLegacyComments } from './append-journal';
 import { noteProgress, type ProgressJob } from './progress';
 import { prepareNoteContext, MAX_VOCABULARY_CHARS } from './context';
-interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; }
+interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; showInlineButton: boolean; }
 declare const VOICE_APPEND_LAB: boolean;
-const DEFAULTS: Settings = { vaultId: '', transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '' };
+const DEFAULTS: Settings = { vaultId: '', transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', showInlineButton: true };
 const LABELS: Record<Job['state'], Message> = { queued: 'Wartet auf Verarbeitung', transcribing: 'Wird transkribiert', cleaning: 'Wird bereinigt', appending: 'Wird angehängt', completed: 'Angehängt', failed: 'Benötigt Aufmerksamkeit' };
 export default class VoiceAppend extends Plugin {
   settings!: Settings;
@@ -30,13 +30,14 @@ export default class VoiceAppend extends Plugin {
   async onload() {
     setLanguage(getLanguage());
     this.settings = { ...DEFAULTS, ...await this.loadData() };
+    this.updateAppearance();
     if (!this.settings.vaultId) { this.settings.vaultId = crypto.randomUUID(); await this.saveSettings(); }
     this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId);
     this.store = await JobStore.open(this.settings.vaultId);
     for (const job of await this.store.all()) { this.cacheProgress(job); const file = this.app.vault.getAbstractFileByPath(job.targetPath); if (file instanceof TFile) this.targetFiles.set(job.id, file); }
     this.provider = new OpenAIProvider(() => this.apiKey.get(), request => requestUrl(request));
     this.addSettingTab(new VoiceSettings(this.app, this));
-    this.addCommand({ id: 'record', name: t('Gedanken ergänzen'), checkCallback: checking => { const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return false; if (!checking) this.start(file); return true; } });
+    this.addCommand({ id: 'record', name: t('Gedanken ergänzen'), icon: 'mic', checkCallback: checking => { const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return false; if (!checking) this.start(file); return true; } });
     this.addCommand({ id: 'outbox', name: t('Aufnahmen und Status öffnen'), callback: () => this.openOutbox() });
     if (VOICE_APPEND_LAB) this.addCommand({ id: 'lab-test', name: t('Lab: Test-Ergänzung ohne Mikrofon und API'), callback: async () => {
       const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return;
@@ -90,6 +91,7 @@ export default class VoiceAppend extends Plugin {
     const render = () => {
       const target = file(); const state = target ? noteProgress(this.progressJobs.values(), target.path) : null;
       const signature = JSON.stringify(state); if (signature === previous) return; previous = signature;
+      el.classList.toggle('has-progress', !!state);
       row.hidden = !state;
       if (!state) return;
       icon.className = state.spinning ? 'voice-append-spinner' : 'voice-append-status-icon';
@@ -101,6 +103,7 @@ export default class VoiceAppend extends Plugin {
   }
   notify() { this.listeners.forEach(listener => listener()); }
   subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  updateAppearance() { this.app.workspace.containerEl.classList.toggle('voice-append-hide-inline-button', !this.settings.showInlineButton); }
   start(file: TFile) {
     if (this.recorder) { new Notice(t('Eine Aufnahme ist bereits geöffnet.')); return; }
     const options = { ...this.settings };
@@ -261,7 +264,7 @@ export default class VoiceAppend extends Plugin {
       host.append(el); this.readingFooters.set(view, { host, el, dispose });
     }
   }
-  onunload() { this.disposed = true; this.recorder?.close(); this.readingFooters.forEach(item => { item.dispose(); item.el.remove(); }); this.listeners.clear(); /* In-flight requests retain the DB to persist recoverable results. */ }
+  onunload() { this.disposed = true; this.app.workspace.containerEl.classList.remove('voice-append-hide-inline-button'); this.recorder?.close(); this.readingFooters.forEach(item => { item.dispose(); item.el.remove(); }); this.listeners.clear(); /* In-flight requests retain the DB to persist recoverable results. */ }
 }
 class VoiceSettings extends PluginSettingTab {
   constructor(app: App, private plugin: VoiceAppend) { super(app, plugin); }
@@ -285,6 +288,7 @@ class VoiceSettings extends PluginSettingTab {
     }
     new Setting(el).setName(t('Bereinigungs-Prompt')).setDesc(t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.')).addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); });
     new Setting(el).setName(t('Standard-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
+    new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Originaltranskript anhängen')).setDesc(t('Standardmäßig aus. Bei Aktivierung als eingeklappter Abschnitt unter der Ergänzung.')).addToggle(toggle => toggle.setValue(this.plugin.settings.keepTranscript).onChange(async value => { this.plugin.settings.keepTranscript = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Datierte Überschrift')).addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Notizkontext beim Bereinigen verwenden')).setDesc(t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an OpenAI. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.')).addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); }));
