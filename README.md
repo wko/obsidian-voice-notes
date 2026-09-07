@@ -26,7 +26,7 @@ Nur der Lab-Build enthält den Befehl **Voice Append: Lab: Test-Ergänzung ohne 
 1. Einstellungen → Voice Append → OpenAI-Schlüssel: genau einen Schlüssel in das verdeckte Textfeld einfügen und „Save“/„Speichern“ wählen. Keine Schlüsselliste oder Verknüpfungsauswahl mehr. Intern wird der Wert in einem eigenen Obsidian-Secret-Storage-Eintrag gesichert. Ein zuvor verknüpfter Schlüssel bleibt bis zum Ersetzen nutzbar; andere gemeinsam verwendete Schlüssel werden nicht verändert.
 2. Transkriptionsmodell, Bereinigungsmodell und Prompt auswählen. Defaults: `gpt-transcribe`, `gpt-5.6-luna` und eine behutsame Bereinigung wie in der bisherigen App. Modellverfügbarkeit hängt vom API-Konto ab.
 3. In einer Markdown-Notiz am Ende auf **Gedanken ergänzen** tippen. Der Einstieg funktioniert in Live Preview, im Quellmodus und in der Leseansicht; alternativ über Befehlspalette oder Ribbon.
-4. **Stoppen & anhängen** (englisch: **Stop & append**) sichert die Aufnahme lokal und startet bei Verbindung die Verarbeitung. Schließen während der Aufnahme stoppt und sichert ebenfalls. Sichtbarkeitsverlust versucht die Aufnahme zu stoppen; das ist keine Garantie gegen Betriebssystem-Abbruch.
+4. Während der Aufnahme fordert das Plugin einen Screen-Wake-Lock an, damit das Gerät nicht automatisch abdunkelt oder sperrt. **Stoppen & anhängen** (englisch: **Stop & append**) sichert die Aufnahme lokal und startet bei Verbindung die Verarbeitung. Schließen während der Aufnahme stoppt und sichert ebenfalls. Sichtbarkeitsverlust versucht die Aufnahme zu stoppen; das ist keine Garantie gegen Betriebssystem-Abbruch.
 5. Über **Aufnahmen und Status öffnen** lassen sich Ergebnisse prüfen, Audiodateien herunterladen, fehlgeschlagene Aufträge wiederholen, ein fehlendes Ziel neu zuordnen und Aufnahmen nach Rückfrage löschen.
 
 ## Architektur
@@ -58,6 +58,7 @@ Die Notizen enthalten ausschließlich den gewünschten Text, keine technischen K
 - IndexedDB ist App-Speicher, kein Backup: App-Daten löschen, Deinstallation oder Speicherbereinigung kann ihn entfernen. Wichtige offene Aufnahmen lassen sich exportieren.
 - Erste Version: eine Aufnahme pro Ergänzung, maximal zehn Minuten und 24 MiB. „Weiter aufnehmen“ mit mehreren Segmenten folgt später.
 - Während der laufenden Aufnahme liegen Chunks im Speicher; erst `stop` erzeugt die dauerhaft gespeicherte Datei. Bei abruptem Beenden kann der laufende Abschnitt verloren gehen. Hintergrundaufnahme wird nicht zugesagt.
+- Der Screen-Wake-Lock wird nur während der Aufnahme gehalten und danach freigegeben. Wird er vom Betriebssystem aufgehoben, versucht das Plugin ihn bei weiterhin sichtbarer Aufnahme erneut anzufordern. Fehlende Unterstützung oder Energiesparregeln werden angezeigt und blockieren die Aufnahme nicht.
 - Offline-Aufträge starten beim Öffnen/Zurückkehren und bei wiederhergestellter Verbindung. Fehlgeschlagene Aufträge werden bewusst über „Erneut versuchen“ fortgesetzt.
 - HTTP-Aufrufe haben ein 120-Sekunden-Wartebudget. Ein Timeout kann den externen Request nicht sicher abbrechen; ein Wiederholungsversuch kann erneut API-Kosten verursachen, aber nicht dieselbe Ergänzung doppelt schreiben.
 - Desktop-Mikrofonaufnahme nach erteilter macOS-Berechtigung gestartet, gestoppt und lokal gespeichert. Der lokale Text-Append wurde mit vorbereiteten Daten geprüft. Der Nutzer hat inzwischen echte Diktate im Test-Vault angehängt. Hardwaretests auf dem iPhone stehen noch aus.
@@ -65,7 +66,7 @@ Die Notizen enthalten ausschließlich den gewünschten Text, keine technischen K
 ## Verifikation dieser Version
 
 - TypeScript-Prüfung und Build erfolgreich.
-- 33 automatisierte Tests (einschließlich Desktop-Berechtigungspfad, mobiler Isolation, Lokalisierung und optionalem Kontext): Textbewahrung, Idempotenz nach simuliertem Absturz, leere Sprache, Wiederaufnahme nach Fehlern, Prompt-Snapshot, persistente Audiodaten, Aufbewahrung, Vault-Isolation und OpenAI-Protokoll mit simuliertem Transport.
+- 35 automatisierte Tests (einschließlich Desktop-Berechtigungspfad, mobiler Isolation, Screen-Wake-Lock, Lokalisierung und optionalem Kontext): Textbewahrung, Idempotenz nach simuliertem Absturz, leere Sprache, Wiederaufnahme nach Fehlern, Prompt-Snapshot, persistente Audiodaten, Aufbewahrung, Vault-Isolation und OpenAI-Protokoll mit simuliertem Transport.
 - In Obsidian 1.14.0 auf macOS geladen: Einstellungen, Endbutton in Live Preview und Leseansicht, leere Notiz, lokaler Beispiel-Append, Speicherung im Markdown und abgeschlossener Auftragsstatus nach Reload geprüft.
 
 ## Mikrofonfreigabe auf dem Desktop
@@ -83,6 +84,7 @@ Mit einem Test-Vault und persönlichem API-Schlüssel: 30 Sekunden deutsches Dik
 - [Obsidian: Editor decorations](https://docs.obsidian.md/Plugins/Editor/Decorations)
 - [Obsidian: Vault](https://docs.obsidian.md/Plugins/Vault)
 - [Obsidian TypeScript API](https://github.com/obsidianmd/obsidian-api)
+- [MDN: Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API)
 - [OpenAI: File transcription](https://developers.openai.com/api/docs/guides/speech-to-text)
 
 Die bestehende Voice-App und ihre Specs dienten als Referenz für Bereinigungsregeln, Fehlerbehandlung und Wiederholbarkeit. Das Plugin hat keine Abhängigkeit von deren Server oder Vault-Schreiber.

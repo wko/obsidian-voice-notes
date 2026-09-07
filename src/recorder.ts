@@ -2,6 +2,7 @@ import { t } from './i18n';
 import { Modal, Notice, type App, type TFile } from 'obsidian';
 import type { Job, Options } from './core';
 import { microphoneHelp, requestMicrophone } from './microphone';
+import { RecordingWakeLock } from './wake-lock';
 const LIMIT_SECONDS = 600;
 const LIMIT_BYTES = 24 * 1024 * 1024;
 export class RecorderModal extends Modal {
@@ -23,6 +24,8 @@ export class RecorderModal extends Modal {
   private bytes = 0;
   private url?: string;
   private id = crypto.randomUUID();
+  private wakeLock = new RecordingWakeLock();
+  private hint!: HTMLElement;
   private onVisibility = () => { if (document.hidden && this.recorder?.state === 'recording') this.stop(); };
   constructor(app: App, readonly file: TFile, private options: Options, private accept: (job: Job) => Promise<void>, private release: () => void) { super(app); }
   onOpen() {
@@ -30,7 +33,7 @@ export class RecorderModal extends Modal {
     this.contentEl.createEl('p', { text: this.file.basename, cls: 'voice-append-target' });
     this.status = this.contentEl.createEl('p', { text: t('Mikrofon wird geöffnet …'), cls: 'voice-append-status', attr: { 'aria-live': 'polite' } });
     this.controls = this.contentEl.createDiv({ cls: 'voice-append-controls' });
-    this.contentEl.createEl('p', { text: t('Bis zu 10 Minuten. Obsidian während der Aufnahme geöffnet lassen. Stoppen speichert die Aufnahme und startet die Verarbeitung.'), cls: 'voice-append-hint' });
+    this.hint = this.contentEl.createEl('p', { text: t('Bis zu 10 Minuten. Obsidian während der Aufnahme geöffnet lassen. Stoppen speichert die Aufnahme und startet die Verarbeitung.'), cls: 'voice-append-hint' });
     document.addEventListener('visibilitychange', this.onVisibility);
     void this.start();
   }
@@ -38,6 +41,7 @@ export class RecorderModal extends Modal {
     if (this.requesting || this.closed) return;
     this.requesting = true; this.controls.empty(); this.permissionHelp?.remove();
     this.status.setText(t('Mikrofon wird geöffnet …'));
+    const wakeLock = this.wakeLock.start();
     try {
       this.stream = await requestMicrophone();
       if (this.closed) { this.stopTracks(); return; }
@@ -51,6 +55,11 @@ export class RecorderModal extends Modal {
       this.recorder.onstop = () => { void this.finish(); };
       for (const track of this.stream.getAudioTracks()) track.onended = () => this.stop();
       this.startedAt = Date.now(); this.recorder.start(1000);
+      void wakeLock.then(active => {
+        if (!this.closed && this.recorder?.state === 'recording') this.hint.setText(active
+          ? t('Der Bildschirm bleibt während der Aufnahme aktiv. Stoppen speichert die Aufnahme und startet die Verarbeitung.')
+          : t('Der Bildschirm kann auf diesem Gerät nicht automatisch aktiv gehalten werden. Obsidian während der Aufnahme geöffnet lassen.'));
+      });
       const stop = this.controls.createEl('button', { text: t('Stoppen & anhängen'), cls: 'mod-cta' }); stop.onclick = () => this.stop();
       this.status.setText(`${t('Aufnahme läuft')} · 0:00`);
       this.timer = window.setInterval(() => {
@@ -59,6 +68,7 @@ export class RecorderModal extends Modal {
         if (seconds >= LIMIT_SECONDS) this.stop();
       }, 250);
     } catch (error) {
+      await this.wakeLock.stop();
       this.stopTracks(); if (this.closed) return;
       const help = microphoneHelp(error); this.status.setText(help.message);
       this.controls.empty();
@@ -71,6 +81,7 @@ export class RecorderModal extends Modal {
   private stopTracks() { this.stream?.getTracks().forEach(track => { track.onended = null; track.stop(); }); }
   private stop() {
     window.clearInterval(this.timer);
+    void this.wakeLock.stop();
     if (this.recorder && this.recorder.state !== 'inactive') { this.finishing = true; this.recorder.stop(); }
   }
   private async finish() {
@@ -107,6 +118,7 @@ export class RecorderModal extends Modal {
   }
   onClose() {
     this.closed = true; document.removeEventListener('visibilitychange', this.onVisibility);
+    void this.wakeLock.stop();
     if (this.recorder?.state === 'recording') this.stop(); else this.stopTracks();
     if (this.url) URL.revokeObjectURL(this.url);
     this.release();

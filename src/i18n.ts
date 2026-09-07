@@ -12,6 +12,8 @@ const english = {
   'Lab: Test-Ergänzung ohne Mikrofon und API': 'Lab: Append sample without microphone or API',
   'Mikrofon wird geöffnet …': 'Opening microphone…',
   'Bis zu 10 Minuten. Obsidian während der Aufnahme geöffnet lassen. Stoppen speichert die Aufnahme und startet die Verarbeitung.': 'Up to 10 minutes. Keep Obsidian open while recording. Stopping saves the audio and starts processing.',
+  'Der Bildschirm bleibt während der Aufnahme aktiv. Stoppen speichert die Aufnahme und startet die Verarbeitung.': 'The screen stays awake while recording. Stopping saves the audio and starts processing.',
+  'Der Bildschirm kann auf diesem Gerät nicht automatisch aktiv gehalten werden. Obsidian während der Aufnahme geöffnet lassen.': 'The screen cannot be kept awake automatically on this device. Keep Obsidian open while recording.',
   'Aufnahme wird auf diesem Gerät nicht unterstützt.': 'Recording is not supported on this device.',
   'Aufnahme wurde unterbrochen. Verfügbare Audiodaten werden gesichert.': 'Recording was interrupted. Available audio is being saved.',
   'Stoppen & anhängen': 'Stop & append',
