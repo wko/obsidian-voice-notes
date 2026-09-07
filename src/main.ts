@@ -112,8 +112,23 @@ export default class VoiceAppend extends Plugin {
       job.noteContext = context.text;
       if (context.error) { job.state = 'failed'; job.error = context.error; }
       await this.saveJob(job); this.targetFiles.set(job.id, file); this.notify(); void this.runQueue();
+      this.scrollToProgress(file);
     }, () => { this.recorder = undefined; });
     this.recorder.open();
+  }
+  private scrollToProgress(file: TFile) {
+    const view = this.app.workspace.getLeavesOfType('markdown').map(leaf => leaf.view)
+      .find((candidate): candidate is MarkdownView => candidate instanceof MarkdownView && candidate.file === file);
+    if (!view) return;
+    if (view.getMode() === 'source') {
+      const end = view.editor.offsetToPos(view.editor.getValue().length);
+      view.editor.scrollIntoView({ from: end, to: end }, true);
+    }
+    window.requestAnimationFrame(() => {
+      const target = view.contentEl.querySelector<HTMLElement>('.voice-append-progress:not([hidden])')
+        ?? view.contentEl.querySelector<HTMLElement>('.voice-append-footer');
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   }
   private async readNoteContext(file: TFile): Promise<string> {
     const view = this.app.workspace.getLeavesOfType('markdown').map(leaf => leaf.view).find((view): view is MarkdownView => view instanceof MarkdownView && view.file === file && view.getMode() === 'source');

@@ -17,7 +17,20 @@ export function footerExtension(start: (file: TFile) => void, bindProgress: Bind
     toDOM(view: EditorView) {
       const getFile = () => view.state.field(editorInfoField, false)?.file;
       const el = voiceButton(view.dom.ownerDocument, () => { const file = getFile(); if (file) start(file); });
-      disposers.set(el, bindProgress(el, getFile)); return el;
+      const button = el.querySelector<HTMLElement>('.voice-append-button')!;
+      let frame = 0;
+      const center = () => {
+        window.cancelAnimationFrame(frame);
+        frame = window.requestAnimationFrame(() => {
+          button.style.transform = '';
+          const viewport = view.scrollDOM.getBoundingClientRect();
+          const rect = button.getBoundingClientRect();
+          if (rect.width) button.style.transform = `translateX(${viewport.left + viewport.width / 2 - rect.left - rect.width / 2}px)`;
+        });
+      };
+      const observer = new ResizeObserver(center); observer.observe(view.scrollDOM); center();
+      const disposeProgress = bindProgress(el, getFile);
+      disposers.set(el, () => { observer.disconnect(); window.cancelAnimationFrame(frame); disposeProgress(); }); return el;
     }
     destroy(dom: HTMLElement) { disposers.get(dom)?.(); disposers.delete(dom); }
     ignoreEvent() { return true; }
