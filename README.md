@@ -107,6 +107,10 @@ The test suite covers storage recovery, append idempotency, localization, microp
 
 Release tags must match the version exactly, without a `v` prefix.
 
+## Roadmap
+
+Planned and exploratory feature ideas are tracked in [ROADMAP.md](ROADMAP.md) and as GitHub issues. Current themes include quick capture into a new note, configurable title generation outside the voice append flow, and locally selected context from related notes, concepts, and tag hierarchies.
+
 ## Contributing and security
 
 Bug reports and focused pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance. Please report security issues according to [SECURITY.md](SECURITY.md), rather than opening a public issue.
