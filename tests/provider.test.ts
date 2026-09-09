@@ -23,7 +23,17 @@ test('cleanup uses configured prompt, non-stored structured output and only tran
     const body = JSON.parse(request.body as string); assert.equal(body.store, false); assert.equal(body.input, 'Raw'); assert.ok(body.instructions.startsWith('My rules')); assert.equal(body.text.format.strict, true);
     return { status: 200, json: { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '{"body":"Clean"}' }] }] } };
   });
-  assert.equal(await provider.clean('Raw', 'model', 'My rules'), 'Clean');
+  assert.deepEqual(await provider.clean('Raw', 'model', 'My rules'), { body: 'Clean' });
+});
+test('cleanup generates a title in the same structured request when requested', async () => {
+  const provider = new OpenAIProvider(() => 'test-key', async request => {
+    const body = JSON.parse(request.body as string);
+    assert.deepEqual(body.text.format.schema.required, ['body', 'title']);
+    assert.equal(body.text.format.schema.properties.title.type, 'string');
+    assert.match(body.instructions, /concise, descriptive title/);
+    return { status: 200, json: { status: 'completed', output: [{ content: [{ type: 'output_text', text: '{"body":"Clean","title":"A concise title"}' }] }] } };
+  });
+  assert.deepEqual(await provider.clean('Raw', 'model', 'Rules', { requestTitle: true }), { body: 'Clean', title: 'A concise title' });
 });
 test('provider failures do not expose server details or secrets', async () => {
   const provider = new OpenAIProvider(() => 'private-key', async () => ({ status: 500, json: { error: 'private-key, sensitive transcript' } }));

@@ -8,10 +8,10 @@ import { JobStore } from './store';
 import { ApiKey } from './api-key';
 import { createAppendPlan, inspectAppend, applyAppendPlan, removeLegacyComments } from './append-journal';
 import { noteProgress, type ProgressJob } from './progress';
-import { prepareNoteContext, MAX_VOCABULARY_CHARS } from './context';
+import { prepareNoteContext, mainContentIsEmpty, MAX_VOCABULARY_CHARS } from './context';
 interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; showInlineButton: boolean; }
 declare const VOICE_APPEND_LAB: boolean;
-const DEFAULTS: Settings = { vaultId: '', transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', showInlineButton: true };
+const DEFAULTS: Settings = { vaultId: '', transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, showInlineButton: true };
 const LABELS: Record<Job['state'], Message> = { queued: 'Wartet auf Verarbeitung', transcribing: 'Wird transkribiert', cleaning: 'Wird bereinigt', appending: 'Wird angehängt', completed: 'Angehängt', failed: 'Benötigt Aufmerksamkeit' };
 export default class VoiceAppend extends Plugin {
   settings!: Settings;
@@ -107,12 +107,13 @@ export default class VoiceAppend extends Plugin {
   start(file: TFile) {
     if (this.recorder) { new Notice(t('Eine Aufnahme ist bereits geöffnet.')); return; }
     const options = { ...this.settings };
-    const snapshot: Promise<{ text?: string; error?: string }> = options.useNoteContext
-      ? this.readNoteContext(file).then(text => ({ text }), () => ({ error: t('Kontext konnte nicht gelesen werden. Die Aufnahme bleibt gespeichert.') }))
-      : Promise.resolve({});
+    const snapshot: Promise<{ noteContext?: string; requestTitle: boolean; error?: string }> = options.useNoteContext || options.generateTitle
+      ? this.readNote(file).then(markdown => ({ noteContext: options.useNoteContext ? prepareNoteContext(markdown) : undefined, requestTitle: !!options.generateTitle && mainContentIsEmpty(markdown) }), () => ({ requestTitle: false, ...(options.useNoteContext ? { error: t('Kontext konnte nicht gelesen werden. Die Aufnahme bleibt gespeichert.') } : {}) }))
+      : Promise.resolve({ requestTitle: false });
     this.recorder = new RecorderModal(this.app, file, options, async job => {
       const context = await snapshot;
-      job.noteContext = context.text;
+      job.noteContext = context.noteContext;
+      job.requestTitle = context.requestTitle;
       if (context.error) { job.state = 'failed'; job.error = context.error; }
       await this.saveJob(job); this.targetFiles.set(job.id, file); this.notify(); void this.runQueue();
       this.scrollToProgress(file);
@@ -134,8 +135,11 @@ export default class VoiceAppend extends Plugin {
     });
   }
   private async readNoteContext(file: TFile): Promise<string> {
+    return prepareNoteContext(await this.readNote(file));
+  }
+  private async readNote(file: TFile): Promise<string> {
     const view = this.app.workspace.getLeavesOfType('markdown').map(leaf => leaf.view).find((view): view is MarkdownView => view instanceof MarkdownView && view.file === file && view.getMode() === 'source');
-    return prepareNoteContext(view ? view.editor.getValue() : await this.app.vault.read(file));
+    return view ? view.editor.getValue() : this.app.vault.read(file);
   }
   openOutbox() { new Outbox(this.app, this).open(); }
   private async updatePaths(file: TAbstractFile, oldPath: string) {
@@ -289,6 +293,7 @@ class VoiceSettings extends PluginSettingTab {
     new Setting(el).setName(t('Bereinigungs-Prompt')).setDesc(t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.')).addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); });
     new Setting(el).setName(t('Standard-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Titel für leere Notizen erzeugen')).setDesc(t('Erzeugt beim Bereinigen eine H1-Überschrift, wenn die Notiz außer Frontmatter noch keinen Inhalt hat. Der Dateiname bleibt unverändert.')).addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Originaltranskript anhängen')).setDesc(t('Standardmäßig aus. Bei Aktivierung als eingeklappter Abschnitt unter der Ergänzung.')).addToggle(toggle => toggle.setValue(this.plugin.settings.keepTranscript).onChange(async value => { this.plugin.settings.keepTranscript = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Datierte Überschrift')).addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Notizkontext beim Bereinigen verwenden')).setDesc(t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an OpenAI. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.')).addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); }));

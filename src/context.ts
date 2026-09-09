@@ -1,8 +1,14 @@
 export const MAX_CONTEXT_CHARS = 16000;
 export const MAX_VOCABULARY_CHARS = 2000;
 export interface CleanupContext { noteContext?: string; vocabulary?: string; }
+function withoutFrontmatter(markdown: string): string {
+  return markdown.replace(/^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/, '');
+}
+export function mainContentIsEmpty(markdown: string): boolean {
+  return withoutFrontmatter(markdown).trim().length === 0;
+}
 export function prepareNoteContext(markdown: string): string {
-  let text = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+  let text = withoutFrontmatter(markdown);
   text = text.replace(/<!--[^]*?-->/g, '').trim();
   if (text.length <= MAX_CONTEXT_CHARS) return text;
   const separator = '\n[…]\n'; const half = Math.floor((MAX_CONTEXT_CHARS - separator.length) / 2);

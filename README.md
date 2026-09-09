@@ -41,6 +41,7 @@ Nur der Lab-Build enthält den Befehl **Voice Append: Lab: Test-Ergänzung ohne 
 - Der Bereinigungs-Prompt wird pro Aufnahme eingefroren. Bereits erfolgreiche Transkription/Bereinigung wird beim Wiederholen nicht erneut ausgeführt.
 - Es wird nur neue Sprache bearbeitet. Optional kann ein beim Aufnahmestart eingefrorener Ausschnitt der Zielnotiz als Referenz an OpenAI gehen (maximal 16.000 Zeichen, ohne Frontmatter und HTML-Kommentare). Bei längeren Notizen werden Anfang und Ende verwendet. Das ist standardmäßig aus. Kontext ist Referenzmaterial, kein Schreibauftrag: Das Modell soll ausschließlich die neue Ergänzung liefern.
 - Ein optionales Feld für bekannte Namen/Konzepte (maximal 2.000 Zeichen) unterstützt sowohl die Transkription als auch die Bereinigung. Leeres Feld bedeutet keine zusätzlichen Hinweise.
+- Optional erzeugt derselbe Bereinigungsaufruf einen kurzen Titel. Er wird als `# H1` vor die Ergänzung gesetzt, wenn die Notiz beim Aufnahmestart und beim tatsächlichen Anhängen außer Frontmatter keinen Inhalt hat. Der Dateiname wird nicht geändert und es entsteht kein zusätzlicher API-Aufruf.
 - Das Originaltranskript bleibt für Wiederherstellung lokal gespeichert, wird aber standardmäßig nicht an die Notiz angehängt. Der Schalter „Include original transcript“/„Originaltranskript anhängen“ aktiviert den eingeklappten Abschnitt.
 - Während der Verarbeitung erscheint direkt am Ende der Zielnotiz ein Spinner mit der aktuellen Phase: Transkription, Bereinigung oder Anhängen. Wartende Aufträge zeigen eine Uhr, Fehler einen statischen Hinweis mit Link zum Status. Erfolgreiche Aufträge verschwinden aus dieser Anzeige. Live Preview und Leseansicht verwenden denselben Status; bei reduzierten Animationen bleibt das Symbol statisch. Es wird kein Status-Markdown in die Notiz geschrieben.
 - Oberfläche und Button folgen Obsidian: Deutsch und Englisch; andere Sprachen fallen auf Englisch zurück. Benutzerdefinierte Prompts werden nicht automatisch übersetzt.
@@ -67,7 +68,7 @@ Die Notizen enthalten ausschließlich den gewünschten Text, keine technischen K
 ## Verifikation dieser Version
 
 - TypeScript-Prüfung und Build erfolgreich.
-- 35 automatisierte Tests (einschließlich Desktop-Berechtigungspfad, mobiler Isolation, Screen-Wake-Lock, Lokalisierung und optionalem Kontext): Textbewahrung, Idempotenz nach simuliertem Absturz, leere Sprache, Wiederaufnahme nach Fehlern, Prompt-Snapshot, persistente Audiodaten, Aufbewahrung, Vault-Isolation und OpenAI-Protokoll mit simuliertem Transport.
+- 38 automatisierte Tests (einschließlich Desktop-Berechtigungspfad, mobiler Isolation, Screen-Wake-Lock, Titelerzeugung, Lokalisierung und optionalem Kontext): Textbewahrung, Idempotenz nach simuliertem Absturz, leere Sprache, Wiederaufnahme nach Fehlern, Prompt-Snapshot, persistente Audiodaten, Aufbewahrung, Vault-Isolation und OpenAI-Protokoll mit simuliertem Transport.
 - In Obsidian 1.14.0 auf macOS geladen: Einstellungen, Endbutton in Live Preview und Leseansicht, leere Notiz, lokaler Beispiel-Append, Speicherung im Markdown und abgeschlossener Auftragsstatus nach Reload geprüft.
 
 ## Mikrofonfreigabe auf dem Desktop

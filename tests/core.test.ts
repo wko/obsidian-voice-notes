@@ -14,20 +14,25 @@ test('supports empty notes and no transcript or heading', () => {
   const j = job(); j.cleaned = 'Neuer Gedanke'; j.options.keepTranscript = false;
   assert.equal(appendText('', j), 'Neuer Gedanke\n');
 });
+test('adds a generated H1 only when the main note body is still empty', () => {
+  const j = job(); j.options.keepTranscript = false; j.options.generateTitle = true; j.requestTitle = true; j.cleaned = 'A useful thought.'; j.generatedTitle = '# Useful thought\n';
+  assert.equal(appendText('---\ntags: [inbox]\n---\n', j), '---\ntags: [inbox]\n---\n\n# Useful thought\n\nA useful thought.\n');
+  assert.equal(appendText('Existing body', j), 'Existing body\n\nA useful thought.\n');
+});
 test('resumes after cleanup failure without transcribing twice', async () => {
   const j = job(); let transcriptions = 0; let cleanup = 0; let appends = 0;
-  const services = { transcriber: { async transcribe() { transcriptions++; return 'raw'; } }, cleaner: { async clean() { if (++cleanup === 1) throw new Error('offline'); return 'cleaned'; } }, async save() {}, async append() { appends++; } };
+  const services = { transcriber: { async transcribe() { transcriptions++; return 'raw'; } }, cleaner: { async clean() { if (++cleanup === 1) throw new Error('offline'); return { body: 'cleaned' }; } }, async save() {}, async append() { appends++; } };
   await assert.rejects(processJob(j, services)); assert.equal(j.raw, 'raw'); assert.equal(j.state, 'failed');
   await processJob(j, services); assert.equal(transcriptions, 1); assert.equal(cleanup, 2); assert.equal(appends, 1); assert.equal(j.state, 'completed');
 });
 test('crash after append before completion persistence cannot duplicate text', async () => {
   const j = job(); let note = 'Existing'; let rejectCompletion = true;
-  const services = { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean() { return 'clean'; } }, async save(current: Job) { if (current.state === 'completed' && rejectCompletion) { rejectCompletion = false; throw new Error('storage'); } }, async append(current: Job) { current.appendPlan ??= await createAppendPlan(note, current); note = await applyAppendPlan(note, current.appendPlan); } };
+  const services = { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean() { return { body: 'clean' }; } }, async save(current: Job) { if (current.state === 'completed' && rejectCompletion) { rejectCompletion = false; throw new Error('storage'); } }, async append(current: Job) { current.appendPlan ??= await createAppendPlan(note, current); note = await applyAppendPlan(note, current.appendPlan); } };
   await assert.rejects(processJob(j, services)); const written = note;
   await processJob(j, services); assert.equal(note, written); assert.equal(j.state, 'completed');
 });
 test('missing target retains audio and cleaned output for reassignment', async () => {
-  const j = job(); await assert.rejects(processJob(j, { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean() { return 'clean'; } }, async save() {}, async append() { throw new Error('missing target'); } }));
+  const j = job(); await assert.rejects(processJob(j, { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean() { return { body: 'clean' }; } }, async save() {}, async append() { throw new Error('missing target'); } }));
   assert.equal(j.cleaned, 'clean'); assert.ok(j.audio); assert.equal(j.state, 'failed');
 });
 test('empty speech never invokes cleanup or appends', async () => {
@@ -36,7 +41,7 @@ test('empty speech never invokes cleanup or appends', async () => {
 });
 test('snapshotted prompt is used and completed jobs are not reprocessed', async () => {
   const j = job(); j.options.prompt = 'My prompt';
-  const services = { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean(raw: string, model: string, prompt: string) { assert.equal(raw, 'raw'); assert.equal(prompt, 'My prompt'); return 'clean'; } }, async save() {}, async append() {} };
+  const services = { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean(raw: string, model: string, prompt: string) { assert.equal(raw, 'raw'); assert.equal(prompt, 'My prompt'); return { body: 'clean' }; } }, async save() {}, async append() {} };
   await processJob(j, services);
   await processJob(j, { ...services, async save() { assert.fail('completed job saved again'); } });
 });

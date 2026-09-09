@@ -10,6 +10,8 @@ const english = {
   'Gedanken ergänzen': 'Append via voice',
   'Aufnahme-Button in Notizen anzeigen': 'Show recording button in notes',
   'Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.': 'The recording command remains available from the command palette, ribbon and mobile toolbar.',
+  'Titel für leere Notizen erzeugen': 'Generate titles for empty notes',
+  'Erzeugt beim Bereinigen eine H1-Überschrift, wenn die Notiz außer Frontmatter noch keinen Inhalt hat. Der Dateiname bleibt unverändert.': 'Creates an H1 heading during cleanup when the note has no content besides frontmatter. The filename remains unchanged.',
   'Aufnahmen und Status öffnen': 'Open recordings and status',
   'Lab: Test-Ergänzung ohne Mikrofon und API': 'Lab: Append sample without microphone or API',
   'Mikrofon wird geöffnet …': 'Opening microphone…',
