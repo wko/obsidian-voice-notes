@@ -22,10 +22,10 @@ export function footerExtension(start: (file: TFile) => void, bindProgress: Bind
       const center = () => {
         window.cancelAnimationFrame(frame);
         frame = window.requestAnimationFrame(() => {
-          button.style.transform = '';
+          button.setCssProps({ transform: '' });
           const viewport = view.scrollDOM.getBoundingClientRect();
           const rect = button.getBoundingClientRect();
-          if (rect.width) button.style.transform = `translateX(${viewport.left + viewport.width / 2 - rect.left - rect.width / 2}px)`;
+          if (rect.width) button.setCssProps({ transform: `translateX(${viewport.left + viewport.width / 2 - rect.left - rect.width / 2}px)` });
         });
       };
       const observer = new ResizeObserver(center); observer.observe(view.scrollDOM); center();

@@ -1,11 +1,20 @@
 import { Platform } from 'obsidian';
 import { t } from './i18n';
+interface ElectronPreferences {
+  getMediaAccessStatus(type: string): string;
+  askForMediaAccess(type: string): Promise<boolean>;
+}
+interface ElectronModule { remote?: { systemPreferences?: ElectronPreferences }; }
 export async function requestMicrophone(): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error(t('Aufnahme wird auf diesem Gerät nicht unterstützt.'));
   // This optional native bridge is never imported/executed on mobile. Obsidian's core recorder uses the same macOS preflight.
   if (Platform.isDesktopApp && Platform.isMacOS) {
-    let preferences: { getMediaAccessStatus(type: string): string; askForMediaAccess(type: string): Promise<boolean> } | undefined;
-    try { preferences = require('electron')?.remote?.systemPreferences; } catch { /* Browser permission request remains the fallback. */ }
+    let preferences: ElectronPreferences | undefined;
+    try {
+      const hostWindow = window as Window & { require?: (module: string) => unknown };
+      const electron = hostWindow.require?.('electron') as ElectronModule | undefined;
+      preferences = electron?.remote?.systemPreferences;
+    } catch { /* Browser permission request remains the fallback. */ }
     if (preferences?.getMediaAccessStatus('microphone') === 'not-determined') {
       const allowed = await preferences.askForMediaAccess('microphone');
       if (!allowed) throw new DOMException('Permission denied', 'NotAllowedError');

@@ -1,92 +1,116 @@
 # Voice Append
 
-Eigenständiges Obsidian-Plugin für diktierte Ergänzungen. Entwicklungsversion 0.3.0, mit Desktop-Unterstützung und iPhone als mobiler Zielplattform. OpenAI wird direkt angesprochen; kein Atlas-Server, kein Webhook und kein Git-Schreibzugriff sind erforderlich.
+Voice Append records a thought, transcribes it with OpenAI, cleans it up, and appends the result to the active Obsidian note. It is designed for quick capture on iPhone and also works on desktop.
 
-## Entwicklungsumgebung
+## Features
 
-Der benachbarte Ordner `../Voice Append Lab` ist der separate Entwicklungs-Vault. Er ist bereits in Obsidian registriert und enthält das aktivierte Plugin sowie Testnotizen. Der persönliche Vault wurde für die Entwicklung nicht verändert.
+- Record from the end of a note, the command palette, the ribbon, or Obsidian's mobile toolbar.
+- Keep the screen awake while a recording is active where the platform permits it.
+- Transcribe and clean up speech directly through the OpenAI API without a separate server.
+- Show progress at the end of the target note without writing technical markers into Markdown.
+- Resume saved jobs after a restart or temporary network failure.
+- Optionally include note context and familiar names or terminology during cleanup.
+- Optionally generate an H1 title when the note contains only frontmatter.
+- Optionally add the original transcript below the cleaned text. This is disabled by default.
+- Use the interface in English or German, following Obsidian's language setting.
+
+## Requirements
+
+- Obsidian 1.11.4 or later
+- An OpenAI API key with access to the configured transcription and cleanup models
+- Internet access while processing a recording
+
+The defaults are `gpt-transcribe` for transcription and `gpt-5.6-luna` for cleanup. Model availability depends on your OpenAI account and may change over time.
+
+## Installation
+
+Voice Append is not yet listed in Obsidian's Community Plugins directory.
+
+For a manual installation, run `npm ci && npm run release`, then copy these files from `dist/` into `<vault>/.obsidian/plugins/voice-append/`:
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+Reload Obsidian, open **Settings → Community plugins**, and enable **Voice Append**.
+
+## Setup and use
+
+1. Open **Settings → Voice Append**.
+2. Enter one OpenAI API key and select **Save**. The plugin stores the key through Obsidian Secret Storage; its regular settings contain only a reference.
+3. Configure the transcription model, cleanup model, and cleanup prompt if needed.
+4. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
+5. Select **Stop & append** when finished. The recording is saved locally before network processing starts, and the note scrolls to the processing indicator.
+
+Open **Recordings and status** from the plugin settings or command palette to retry a failed job, download its audio, reassign its target note, or delete it.
+
+## Settings
+
+- **Show recording button in notes** controls the inline button. Commands and toolbar actions remain available.
+- **Generate titles for empty notes** requests a concise title in the same cleanup call. The plugin inserts it as an H1 only if the note has no body content both when recording starts and when the result is appended. Frontmatter is ignored and the filename is unchanged.
+- **Include original transcript** adds a collapsed transcript section below the cleaned text.
+- **Dated heading** adds a timestamped heading to each append.
+- **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
+- **Familiar names and concepts** supplies up to 2,000 characters of preferred spellings and terminology to transcription and cleanup.
+
+Each job keeps a snapshot of its processing settings, so changing settings does not alter recordings that are already queued.
+
+## Privacy and data handling
+
+Voice Append sends new audio and its transcript directly to OpenAI. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
+
+The API key is stored using Obsidian Secret Storage. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
+
+Review [OpenAI's data controls](https://platform.openai.com/docs/guides/your-data) before using the plugin with sensitive material.
+
+## Platform behavior and limitations
+
+- A recording can be up to 10 minutes and 24 MiB.
+- Keep Obsidian open while recording. Mobile operating systems can still stop the app when it moves to the background.
+- The Screen Wake Lock API is requested only while recording. Device support and power-saving rules can override it.
+- Audio chunks remain in memory until recording stops. An abrupt app termination can lose the active, unsaved segment.
+- Network requests have a 120-second wait budget. Retrying after a timeout may incur another API charge, but the append journal prevents the same result from being written twice when recovery is unambiguous.
+- The queue is local to one device. Concurrent edits or sync conflicts can require manual review.
+
+## Development
 
 ```sh
 npm ci
-npm run build
 npm test
+npm run build
 npm run dev
 ```
 
-`build` prüft TypeScript, baut das Plugin und kopiert `main.js`, `manifest.json` und `styles.css` automatisch in den Test-Vault. `dev` beobachtet Quelldateien und baut nach Änderungen neu. Zum Laden neuer Builds das Plugin im Test-Vault aus- und einschalten oder nach dem Speichern der Testnotizen den Obsidian-Befehl „Reload app without saving“ ausführen. Es wird kein zusätzliches Hot-Reload-Plugin benötigt.
+`npm run build` type-checks the project and writes a development build to `main.js`. `npm run dev` watches the source files. Set `OBSIDIAN_PLUGIN_DIR` to install successful development builds into a test vault automatically:
 
-Der Lab-Build enthält zusätzlich **Lab: Preview progress (no API)** für eine kurze Vorschau aller drei Spinner-Phasen ohne Aufnahme, Netzwerk oder Änderung der Notiz.
+```sh
+OBSIDIAN_PLUGIN_DIR="/path/to/Test Vault/.obsidian/plugins/voice-append" npm run dev
+```
 
-Nur der Lab-Build enthält den Befehl **Voice Append: Lab: Test-Ergänzung ohne Mikrofon und API**. Er hängt vorbereiteten Beispieltext an die geöffnete Notiz an und prüft dabei denselben Speicher-, Queue- und Schreibpfad. Er benutzt weder Mikrofon noch Netzwerk. Jeder Aufruf ist eine neue Ergänzung.
+Development builds include two local test commands. Release builds omit them and source maps. Run `npm run release` to create the distributable files in `dist/`.
 
-`npm run release` baut ein Paket ohne Lab-Befehl und ohne Source Map nach `dist/`. Für eine manuelle Installation die drei Dateien aus `dist/` nach `.obsidian/plugins/voice-append/` im jeweiligen Vault kopieren und Community Plugins aktivieren. Mindestens Obsidian 1.11.4 ist für Secret Storage nötig.
+The processing path is:
 
-## Benutzung
+```text
+recorder.ts → IndexedDB → resumable job processor → OpenAI → Obsidian editor or vault
+```
 
-1. Einstellungen → Voice Append → OpenAI-Schlüssel: genau einen Schlüssel in das verdeckte Textfeld einfügen und „Save“/„Speichern“ wählen. Keine Schlüsselliste oder Verknüpfungsauswahl mehr. Intern wird der Wert in einem eigenen Obsidian-Secret-Storage-Eintrag gesichert. Ein zuvor verknüpfter Schlüssel bleibt bis zum Ersetzen nutzbar; andere gemeinsam verwendete Schlüssel werden nicht verändert.
-2. Transkriptionsmodell, Bereinigungsmodell und Prompt auswählen. Defaults: `gpt-transcribe`, `gpt-5.6-luna` und eine behutsame Bereinigung wie in der bisherigen App. Modellverfügbarkeit hängt vom API-Konto ab.
-3. In einer Markdown-Notiz am Ende auf **Gedanken ergänzen** tippen. Der Einstieg funktioniert in Live Preview, im Quellmodus und in der Leseansicht; alternativ über Befehlspalette oder Ribbon.
-4. Während der Aufnahme fordert das Plugin einen Screen-Wake-Lock an, damit das Gerät nicht automatisch abdunkelt oder sperrt. **Stoppen & anhängen** (englisch: **Stop & append**) sichert die Aufnahme lokal, schließt den Dialog und scrollt in der Zielnotiz zur Inline-Verarbeitung am Dokumentende. Schließen während der Aufnahme stoppt und sichert ebenfalls. Sichtbarkeitsverlust versucht die Aufnahme zu stoppen; das ist keine Garantie gegen Betriebssystem-Abbruch.
-5. Über **Aufnahmen und Status öffnen** lassen sich Ergebnisse prüfen, Audiodateien herunterladen, fehlgeschlagene Aufträge wiederholen, ein fehlendes Ziel neu zuordnen und Aufnahmen nach Rückfrage löschen.
+The test suite covers storage recovery, append idempotency, localization, microphone permissions, wake lock behavior, note context, title generation, OpenAI request contracts, and error handling.
 
-## Architektur
+## Releasing
 
-`recorder.ts` → IndexedDB (`store.ts`) → fortsetzbare Verarbeitung (`core.ts`) → OpenAI (`provider.ts`) → Obsidian-Editor/Vault (`main.ts`).
+1. Update `minAppVersion` in `manifest.json` if necessary.
+2. Run `npm version patch`, `npm version minor`, or `npm version major`. The version script updates `manifest.json` and `versions.json`.
+3. Push the commit and the generated tag.
+4. The release workflow verifies the tag, runs the test suite, builds the plugin, and creates a draft GitHub release with the required assets.
+5. Review and publish the draft release.
 
-- TypeScript ohne React. Ein optionaler, strikt auf macOS-Desktop begrenzter Electron-Aufruf fragt die Mikrofonfreigabe beim ersten Zugriff an, wie Obsidian selbst. Auf iPhone/Android wird dieser Pfad nicht geladen; Aufnahme und Verarbeitung verwenden dort ausschließlich Web-/Obsidian-APIs.
-- Zentriertes CodeMirror-Widget am Dokumentende im Editor; separater, beim Rendern wiederhergestellter Footer in der Leseansicht. Nach einer Aufnahme scrollt die geöffnete Zielnotiz zum Verarbeitungsstatus. Der DOM-Selektor der Leseansicht ist eine Kompatibilitätsstelle, die bei Obsidian-Updates geprüft werden muss.
-- Der Aufnahmebefehl trägt ein Mikrofon-Symbol und kann deshalb in Obsidian zur mobilen Werkzeugleiste hinzugefügt werden. Der Inline-Button lässt sich separat ausblenden; laufender Status und Fehler bleiben am Notizende sichtbar.
-- Getrennte `Transcriber`- und `Cleaner`-Schnittstellen. Ein weiterer Provider kann diese implementieren, ohne Aufnahme oder Notizschreiber zu ändern. Eine Provider-Auswahloberfläche ist noch nicht implementiert.
-- Direkte OpenAI-Requests über Obsidian `requestUrl`, einschließlich binärem Multipart-Upload auf mobilen Geräten; Responses API mit `store: false` und strukturiertem Ergebnis.
-- Der Bereinigungs-Prompt wird pro Aufnahme eingefroren. Bereits erfolgreiche Transkription/Bereinigung wird beim Wiederholen nicht erneut ausgeführt.
-- Es wird nur neue Sprache bearbeitet. Optional kann ein beim Aufnahmestart eingefrorener Ausschnitt der Zielnotiz als Referenz an OpenAI gehen (maximal 16.000 Zeichen, ohne Frontmatter und HTML-Kommentare). Bei längeren Notizen werden Anfang und Ende verwendet. Das ist standardmäßig aus. Kontext ist Referenzmaterial, kein Schreibauftrag: Das Modell soll ausschließlich die neue Ergänzung liefern.
-- Ein optionales Feld für bekannte Namen/Konzepte (maximal 2.000 Zeichen) unterstützt sowohl die Transkription als auch die Bereinigung. Leeres Feld bedeutet keine zusätzlichen Hinweise.
-- Optional erzeugt derselbe Bereinigungsaufruf einen kurzen Titel. Er wird als `# H1` vor die Ergänzung gesetzt, wenn die Notiz beim Aufnahmestart und beim tatsächlichen Anhängen außer Frontmatter keinen Inhalt hat. Der Dateiname wird nicht geändert und es entsteht kein zusätzlicher API-Aufruf.
-- Das Originaltranskript bleibt für Wiederherstellung lokal gespeichert, wird aber standardmäßig nicht an die Notiz angehängt. Der Schalter „Include original transcript“/„Originaltranskript anhängen“ aktiviert den eingeklappten Abschnitt.
-- Während der Verarbeitung erscheint direkt am Ende der Zielnotiz ein Spinner mit der aktuellen Phase: Transkription, Bereinigung oder Anhängen. Wartende Aufträge zeigen eine Uhr, Fehler einen statischen Hinweis mit Link zum Status. Erfolgreiche Aufträge verschwinden aus dieser Anzeige. Live Preview und Leseansicht verwenden denselben Status; bei reduzierten Animationen bleibt das Symbol statisch. Es wird kein Status-Markdown in die Notiz geschrieben.
-- Oberfläche und Button folgen Obsidian: Deutsch und Englisch; andere Sprachen fallen auf Englisch zurück. Benutzerdefinierte Prompts werden nicht automatisch übersetzt.
-- Der offene Editor wird am aktuellen Ende ergänzt; geschlossene Dateien werden mit `Vault.process()` aktualisiert. Der Editor-Schreibvorgang gilt erst nach Prüfung der gespeicherten Datei als erledigt.
+Release tags must match the version exactly, without a `v` prefix.
 
-## Zielnotiz ohne zusätzliche Notiz-ID
+## Contributing and security
 
-Keine neue Frontmatter-Eigenschaft und keine `voice_note_id`. Während der Sitzung hält das Plugin das Obsidian-`TFile` fest; für Neustarts speichert es den Pfad und den vorhandenen Dateierstellungszeitpunkt als Plausibilitätsprüfung. Datei- und Ordnerumbenennungen während der Sitzung werden verfolgt. Fehlt das Ziel oder scheint die Datei ersetzt worden zu sein, bleibt die Aufnahme zur manuellen Zuordnung erhalten. Änderungen des Erstellungszeitpunkts durch Sync können ebenfalls eine erneute Zuordnung erforderlich machen.
+Bug reports and focused pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance. Please report security issues according to [SECURITY.md](SECURITY.md), rather than opening a public issue.
 
-Die Notizen enthalten ausschließlich den gewünschten Text, keine technischen Kommentare oder IDs. Ein lokaler Schreibplan erkennt bereits angehängte Ergänzungen nach einer Unterbrechung. Ist die Zuordnung wegen nachträglicher Änderungen nicht eindeutig, stoppt der Wiederholungsversuch zur Prüfung. Alte Plugin-Kommentare werden einmalig entfernt. Keine Garantie für globale Konfliktfreiheit bei parallelen Änderungen durch mehrere Geräte oder externe Git-Prozesse.
+## License
 
-## Speicherung und aktuelle Grenzen
-
-- Vollständig gestoppte Aufnahme, Transkript und bereinigtes Ergebnis liegen in IndexedDB auf dem Aufnahmegerät. Diese Warteschlange wird nicht mit dem Vault synchronisiert.
-- Erfolgreiche Audiodateien werden beim nächsten Plugin-Start nach sieben Tagen entfernt. Offene/fehlgeschlagene Aufnahmen bleiben bis zur Erledigung oder manuellen Löschung erhalten. Das fertige Markdown bleibt bestehen.
-- IndexedDB ist App-Speicher, kein Backup: App-Daten löschen, Deinstallation oder Speicherbereinigung kann ihn entfernen. Wichtige offene Aufnahmen lassen sich exportieren.
-- Erste Version: eine Aufnahme pro Ergänzung, maximal zehn Minuten und 24 MiB. „Weiter aufnehmen“ mit mehreren Segmenten folgt später.
-- Während der laufenden Aufnahme liegen Chunks im Speicher; erst `stop` erzeugt die dauerhaft gespeicherte Datei. Bei abruptem Beenden kann der laufende Abschnitt verloren gehen. Hintergrundaufnahme wird nicht zugesagt.
-- Der Screen-Wake-Lock wird nur während der Aufnahme gehalten und danach freigegeben. Wird er vom Betriebssystem aufgehoben, versucht das Plugin ihn bei weiterhin sichtbarer Aufnahme erneut anzufordern. Fehlende Unterstützung oder Energiesparregeln werden angezeigt und blockieren die Aufnahme nicht.
-- Offline-Aufträge starten beim Öffnen/Zurückkehren und bei wiederhergestellter Verbindung. Fehlgeschlagene Aufträge werden bewusst über „Erneut versuchen“ fortgesetzt.
-- HTTP-Aufrufe haben ein 120-Sekunden-Wartebudget. Ein Timeout kann den externen Request nicht sicher abbrechen; ein Wiederholungsversuch kann erneut API-Kosten verursachen, aber nicht dieselbe Ergänzung doppelt schreiben.
-- Desktop-Mikrofonaufnahme nach erteilter macOS-Berechtigung gestartet, gestoppt und lokal gespeichert. Der lokale Text-Append wurde mit vorbereiteten Daten geprüft. Der Nutzer hat inzwischen echte Diktate im Test-Vault angehängt. Hardwaretests auf dem iPhone stehen noch aus.
-
-## Verifikation dieser Version
-
-- TypeScript-Prüfung und Build erfolgreich.
-- 38 automatisierte Tests (einschließlich Desktop-Berechtigungspfad, mobiler Isolation, Screen-Wake-Lock, Titelerzeugung, Lokalisierung und optionalem Kontext): Textbewahrung, Idempotenz nach simuliertem Absturz, leere Sprache, Wiederaufnahme nach Fehlern, Prompt-Snapshot, persistente Audiodaten, Aufbewahrung, Vault-Isolation und OpenAI-Protokoll mit simuliertem Transport.
-- In Obsidian 1.14.0 auf macOS geladen: Einstellungen, Endbutton in Live Preview und Leseansicht, leere Notiz, lokaler Beispiel-Append, Speicherung im Markdown und abgeschlossener Auftragsstatus nach Reload geprüft.
-
-## Mikrofonfreigabe auf dem Desktop
-
-Nach einer verweigerten Freigabe zeigt der Aufnahmedialog konkrete Schritte, einen Link zu den Mikrofoneinstellungen auf macOS/Windows und „Try again“/„Erneut versuchen“. Auf macOS unter Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon Obsidian aktivieren. Ggf. Obsidian neu starten. Ein fehlendes oder belegtes Mikrofon wird separat erklärt. Die Freigabe kann das Plugin nicht erzwingen.
-
-## Nächste Prüfungen auf dem iPhone
-
-Mit einem Test-Vault und persönlichem API-Schlüssel: 30 Sekunden deutsches Diktat, Eigennamen, längere Aufnahme, Mikrofon verweigern/erlauben, offline stoppen und nach Rückkehr verarbeiten, Displaysperre, App-Wechsel, Neustart nach dem Stoppen, manuelle Änderungen während der Verarbeitung, Umbenennung und gelöschtes Ziel. Mobile Emulation am Mac ersetzt diese Hardwaretests nicht.
-
-## Offizielle Grundlagen
-
-- [Obsidian: Build a plugin](https://docs.obsidian.md/Plugins/Getting%20started/Build%20a%20plugin)
-- [Obsidian: Mobile development](https://docs.obsidian.md/Plugins/Getting%20started/Mobile%20development)
-- [Obsidian: Editor decorations](https://docs.obsidian.md/Plugins/Editor/Decorations)
-- [Obsidian: Vault](https://docs.obsidian.md/Plugins/Vault)
-- [Obsidian TypeScript API](https://github.com/obsidianmd/obsidian-api)
-- [MDN: Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API)
-- [OpenAI: File transcription](https://developers.openai.com/api/docs/guides/speech-to-text)
-
-Die bestehende Voice-App und ihre Specs dienten als Referenz für Bereinigungsregeln, Fehlerbehandlung und Wiederholbarkeit. Das Plugin hat keine Abhängigkeit von deren Server oder Vault-Schreiber.
+[MIT](LICENSE)

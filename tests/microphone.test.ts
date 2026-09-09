@@ -7,7 +7,8 @@ test('native macOS first-use permission, denied recovery, and mobile isolation',
   state.__voiceTestPlatform = platform;
   let requests = 0; let permissionRequests = 0; let status = 'not-determined'; let allowed = false;
   state.__voiceTestElectron = { remote: { systemPreferences: { getMediaAccessStatus() { return status; }, async askForMediaAccess() { permissionRequests++; return allowed; } } } };
-  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator'); const originalRecorder = Object.getOwnPropertyDescriptor(globalThis, 'MediaRecorder');
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator'); const originalRecorder = Object.getOwnPropertyDescriptor(globalThis, 'MediaRecorder'); const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { require: () => state.__voiceTestElectron } });
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: { async getUserMedia() { requests++; return 'fake-stream'; } } } });
   Object.defineProperty(globalThis, 'MediaRecorder', { configurable: true, value: class {} });
   try {
@@ -27,6 +28,7 @@ test('native macOS first-use permission, denied recovery, and mobile isolation',
   } finally {
     if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else delete state.navigator;
     if (originalRecorder) Object.defineProperty(globalThis, 'MediaRecorder', originalRecorder); else delete state.MediaRecorder;
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow); else delete state.window;
     delete state.__voiceTestPlatform; delete state.__voiceTestElectron;
   }
 });

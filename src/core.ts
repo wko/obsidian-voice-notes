@@ -2,7 +2,7 @@ import { t } from './i18n';
 import { getLocale } from './i18n';
 import { mainContentIsEmpty, type CleanupContext } from './context';
 import type { AppendPlan } from './append-journal';
-export const DEFAULT_PROMPT = `Bereinige meine diktierte Ergänzung behutsam. Entferne Füllwörter, Wiederholungen und Satzabbrüche. Korrigiere offensichtliche Versprecher. Gliedere in lesbare Markdown-Absätze und nur bei Bedarf kurze Überschriften. Bewahre Sprache, Ton, Bedeutung, Aussagen, Unsicherheit, Beispiele und Detailgrad. Interpretiere nichts hinein, kürze keine Substanz weg und ergänze keine Informationen oder Ratschläge. Gib ausschließlich den bereinigten Ergänzungstext zurück.`;
+export const DEFAULT_PROMPT = `Carefully clean up my dictated addition. Remove filler words, repetitions, and abandoned sentence fragments. Correct obvious slips of the tongue. Organize the result into readable Markdown paragraphs and add short headings only when useful. Preserve the original language, tone, meaning, claims, uncertainty, examples, and level of detail. Do not infer new meaning, remove substance, or add information or advice. Return only the cleaned addition.`;
 export interface Options { transcriptionModel: string; cleanupModel: string; prompt: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; }
 export interface Job {
   id: string; targetPath: string; targetCreatedAt?: number; createdAt: number;

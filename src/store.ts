@@ -1,5 +1,8 @@
 import { t } from './i18n';
 import type { Job } from './core';
+function isJob(value: unknown): value is Job {
+  return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string';
+}
 export class JobStore {
   private constructor(private db: IDBDatabase) {}
   static open(vaultId: string): Promise<JobStore> {
@@ -18,7 +21,10 @@ export class JobStore {
     });
   }
   async save(job: Job) { await this.run('readwrite', store => store.put(job)); }
-  all(): Promise<Job[]> { return this.run('readonly', store => store.getAll()); }
+  async all(): Promise<Job[]> {
+    const values = await this.run<unknown[]>('readonly', store => store.getAll());
+    return values.filter(isJob);
+  }
   async remove(id: string) { await this.run('readwrite', store => store.delete(id)); }
   async expireAudio(now = Date.now()) {
     for (const job of await this.all()) if (job.state === 'completed' && job.completedAt && now - job.completedAt > 7 * 86400000 && job.audio) {

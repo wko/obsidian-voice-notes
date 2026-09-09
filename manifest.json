@@ -5,5 +5,6 @@
   "minAppVersion": "1.11.4",
   "description": "Record thoughts, clean them up with OpenAI and append them to the current note.",
   "author": "Walter Forkel",
+  "authorUrl": "https://github.com/wko",
   "isDesktopOnly": false
 }

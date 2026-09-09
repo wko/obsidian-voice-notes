@@ -2,4 +2,8 @@ node_modules/
 main.js
 dist/
 data.json
+*.map
 *.log
+.DS_Store
+.idea/
+.vscode/

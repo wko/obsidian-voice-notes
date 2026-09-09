@@ -1,6 +1,6 @@
 import { t, setLanguage, getLocale, type Message } from './i18n';
 import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, setIcon, type TAbstractFile, type App } from 'obsidian';
-import { appendText, DEFAULT_PROMPT, processJob, type Job, type Options } from './core';
+import { DEFAULT_PROMPT, processJob, type Job, type Options } from './core';
 import { footerExtension, voiceButton } from './editor';
 import { OpenAIProvider } from './provider';
 import { RecorderModal } from './recorder';
@@ -29,7 +29,8 @@ export default class VoiceAppend extends Plugin {
   private targetFiles = new Map<string, TFile>();
   async onload() {
     setLanguage(getLanguage());
-    this.settings = { ...DEFAULTS, ...await this.loadData() };
+    const saved: unknown = await this.loadData();
+    this.settings = { ...DEFAULTS, ...(saved && typeof saved === 'object' ? saved : {}) };
     this.updateAppearance();
     if (!this.settings.vaultId) { this.settings.vaultId = crypto.randomUUID(); await this.saveSettings(); }
     this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId);
@@ -41,7 +42,7 @@ export default class VoiceAppend extends Plugin {
     this.addCommand({ id: 'outbox', name: t('Aufnahmen und Status öffnen'), callback: () => this.openOutbox() });
     if (VOICE_APPEND_LAB) this.addCommand({ id: 'lab-test', name: t('Lab: Test-Ergänzung ohne Mikrofon und API'), callback: async () => {
       const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return;
-      const job: Job = { id: crypto.randomUUID(), targetPath: file.path, createdAt: Date.now(), audio: null, mime: '', duration: 0, options: { ...this.settings }, state: 'queued', raw: 'Also, ich möchte meine Gedanken direkt in dieser Notiz ergänzen. Ähm, auch wenn ich zwischendurch die Notiz wechsle.', cleaned: 'Ich möchte meine Gedanken direkt in dieser Notiz ergänzen, auch wenn ich zwischendurch die Notiz wechsle.' };
+      const job: Job = { id: crypto.randomUUID(), targetPath: file.path, createdAt: Date.now(), audio: null, mime: '', duration: 0, options: { ...this.settings }, state: 'queued', raw: 'So, I want to append my thoughts directly to this note, even if I switch notes in between.', cleaned: 'I want to append my thoughts directly to this note, even if I switch notes in between.' };
       await this.saveJob(job); this.targetFiles.set(job.id, file); await this.runQueue();
     } });
     if (VOICE_APPEND_LAB) this.addCommand({ id: 'lab-progress', name: t('Lab: Fortschrittsanzeige testen (ohne API)'), callback: async () => {
@@ -227,7 +228,7 @@ export default class VoiceAppend extends Plugin {
         if (view) {
           const current = view.editor.getValue();
           const matches = [...current.matchAll(/^<!-- voice-append: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->[ \t]*(?:\r?\n|$)/gmi)];
-          if (matches.length) view.editor.transaction({ changes: matches.map(match => ({ from: view.editor.offsetToPos(match.index!), to: view.editor.offsetToPos(match.index! + match[0].length), text: '' })) });
+          if (matches.length) view.editor.transaction({ changes: matches.map(match => ({ from: view.editor.offsetToPos(match.index), to: view.editor.offsetToPos(match.index + match[0].length), text: '' })) });
         } else {
           const current = await this.app.vault.read(file);
           if (removeLegacyComments(current) !== current) await this.app.vault.process(file, removeLegacyComments);
@@ -273,13 +274,13 @@ export default class VoiceAppend extends Plugin {
 class VoiceSettings extends PluginSettingTab {
   constructor(app: App, private plugin: VoiceAppend) { super(app, plugin); }
   display() {
-    const el = this.containerEl; el.empty(); el.createEl('h2', { text: 'Voice Append' });
+    const el = this.containerEl; el.empty();
     el.createEl('p', { text: t('Neue Aufnahmen und ihre Transkripte werden direkt an OpenAI übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
     let keyValue = this.plugin.apiKey.get();
     new Setting(el).setName(t('OpenAI-Schlüssel')).setDesc(t('Ein OpenAI-API-Schlüssel für Transkription und Bereinigung.'))
       .addText(text => {
         text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
-        text.setPlaceholder('sk-…').setValue(keyValue).onChange(value => { keyValue = value; });
+        text.setPlaceholder(t('OpenAI-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
       })
       .addButton(button => button.setButtonText(t('Speichern')).onClick(async () => {
         try {
