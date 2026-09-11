@@ -17,10 +17,10 @@ Voice Append records a thought, transcribes it with OpenAI, cleans it up, and ap
 ## Requirements
 
 - Obsidian 1.11.4 or later
-- An OpenAI API key with access to the configured transcription and cleanup models
+- An API key accepted by the configured OpenAI-compatible transcription and cleanup endpoints
 - Internet access while processing a recording
 
-The defaults are `gpt-transcribe` for transcription and `gpt-5.6-luna` for cleanup. Model availability depends on your OpenAI account and may change over time.
+The defaults use `https://api.openai.com/v1`, `gpt-transcribe` for transcription, and `gpt-5.6-luna` for cleanup. Model availability depends on your provider account and may change over time.
 
 ## Installation
 
@@ -37,8 +37,8 @@ Reload Obsidian, open **Settings → Community plugins**, and enable **Voice App
 ## Setup and use
 
 1. Open **Settings → Voice Append**.
-2. Enter one OpenAI API key and select **Save**. The plugin stores the key through Obsidian Secret Storage; its regular settings contain only a reference.
-3. Configure the transcription model, cleanup model, and cleanup prompt if needed.
+2. Enter one API key and select **Save**. The plugin stores the key through Obsidian Secret Storage; its regular settings contain only a reference.
+3. Configure independent OpenAI-compatible base URLs and models for transcription and cleanup, plus the cleanup prompt, if needed. Enter the complete API base (for example `https://api.openai.com/v1`), not a request path. The same stored key is used for both endpoints.
 4. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
 5. Select **Stop & append** when finished. The recording is saved locally before network processing starts, and the note scrolls to the processing indicator.
 
@@ -52,14 +52,15 @@ Open **Recordings and status** from the plugin settings or command palette to re
 - **Dated heading** adds a timestamped heading to each append.
 - **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
 - **Familiar names and concepts** supplies up to 2,000 characters of preferred spellings and terminology to transcription and cleanup.
+- **Transcription base URL** and **Cleanup base URL** may point to different OpenAI-compatible API roots. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
 
 Each job keeps a snapshot of its processing settings, so changing settings does not alter recordings that are already queued.
 
 ## Privacy and data handling
 
-Voice Append sends new audio and its transcript directly to OpenAI. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
+Voice Append sends new audio to the configured transcription endpoint and its transcript to the configured cleanup endpoint. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
 
-The API key is stored using Obsidian Secret Storage. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
+The API key is stored using Obsidian Secret Storage; endpoint URLs and models are ordinary plugin settings and no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
 
 Review [OpenAI's data controls](https://platform.openai.com/docs/guides/your-data) before using the plugin with sensitive material.
 

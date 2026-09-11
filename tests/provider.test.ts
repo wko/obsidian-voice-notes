@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OpenAIProvider } from '../src/provider';
+import { normalizeBaseUrl, OpenAIProvider } from '../src/provider';
 test('missing key never sends a request', async () => {
   const provider = new OpenAIProvider(() => null, async () => { assert.fail('network request'); });
   await assert.rejects(provider.transcribe(new Blob(['a']), 'model'), /Schlüssel/);
@@ -17,6 +17,21 @@ test('transcription sends binary multipart with model and original bytes', async
     return { status: 200, json: { text: 'Erkannter Text' } };
   });
   assert.equal(await provider.transcribe(new Blob(['audio bytes'], { type: 'audio/mp4' }), 'gpt-transcribe'), 'Erkannter Text');
+});
+test('transcription and cleanup can use independent OpenAI-compatible API roots', async () => {
+  const urls: string[] = [];
+  const provider = new OpenAIProvider(() => 'test-key', async request => {
+    urls.push(request.url);
+    if (request.url.includes('transcriber.example')) return { status: 200, json: { text: 'Raw' } };
+    return { status: 200, json: { status: 'completed', output: [{ content: [{ type: 'output_text', text: '{"body":"Clean"}' }] }] } };
+  });
+  await provider.transcribe(new Blob(['audio']), 'stt-model', undefined, 'https://transcriber.example/api/v1/');
+  await provider.clean('Raw', 'cleanup-model', 'Rules', undefined, 'https://cleanup.example/v1');
+  assert.deepEqual(urls, ['https://transcriber.example/api/v1/audio/transcriptions', 'https://cleanup.example/v1/responses']);
+});
+test('base URL rejects embedded credentials and non-HTTP URL parts', () => {
+  assert.equal(normalizeBaseUrl(' https://example.test/v1/ '), 'https://example.test/v1');
+  for (const value of ['https://key@example.test/v1', 'https://example.test/v1?key=secret', 'file:///tmp/v1']) assert.throws(() => normalizeBaseUrl(value), /Basis-URL/);
 });
 test('cleanup uses configured prompt, non-stored structured output and only transcript', async () => {
   const provider = new OpenAIProvider(() => 'test-key', async request => {

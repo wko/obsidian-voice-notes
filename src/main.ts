@@ -2,7 +2,7 @@ import { t, setLanguage, getLocale, type Message } from './i18n';
 import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, setIcon, type TAbstractFile, type App } from 'obsidian';
 import { DEFAULT_PROMPT, processJob, type Job, type Options } from './core';
 import { footerExtension, voiceButton } from './editor';
-import { OpenAIProvider } from './provider';
+import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
 import { RecorderModal } from './recorder';
 import { JobStore } from './store';
 import { ApiKey } from './api-key';
@@ -11,7 +11,7 @@ import { noteProgress, type ProgressJob } from './progress';
 import { prepareNoteContext, mainContentIsEmpty, MAX_VOCABULARY_CHARS } from './context';
 interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; showInlineButton: boolean; }
 declare const VOICE_APPEND_LAB: boolean;
-const DEFAULTS: Settings = { vaultId: '', transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, showInlineButton: true };
+const DEFAULTS: Settings = { vaultId: '', transcriptionBaseUrl: OPENAI_BASE_URL, cleanupBaseUrl: OPENAI_BASE_URL, transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, showInlineButton: true };
 const LABELS: Record<Job['state'], Message> = { queued: 'Wartet auf Verarbeitung', transcribing: 'Wird transkribiert', cleaning: 'Wird bereinigt', appending: 'Wird angehängt', completed: 'Angehängt', failed: 'Benötigt Aufmerksamkeit' };
 export default class VoiceAppend extends Plugin {
   settings!: Settings;
@@ -30,7 +30,11 @@ export default class VoiceAppend extends Plugin {
   async onload() {
     setLanguage(getLanguage());
     const saved: unknown = await this.loadData();
-    this.settings = { ...DEFAULTS, ...(saved && typeof saved === 'object' ? saved : {}) };
+    this.settings = this.migrateSettings(saved);
+    const savedSettings = saved && typeof saved === 'object' ? saved as Partial<Settings> : {};
+    // Persist endpoint defaults once, so subsequent launches and new job snapshots
+    // use the same explicit configuration. Secret references remain untouched.
+    if (!('transcriptionBaseUrl' in savedSettings) || !('cleanupBaseUrl' in savedSettings)) await this.saveSettings();
     this.updateAppearance();
     if (!this.settings.vaultId) { this.settings.vaultId = crypto.randomUUID(); await this.saveSettings(); }
     this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId);
@@ -78,6 +82,15 @@ export default class VoiceAppend extends Plugin {
     await this.store.expireAudio();
   }
   saveSettings() { return this.saveData(this.settings); }
+  /** Adds endpoint defaults to pre-provider configurations without touching secret references. */
+  private migrateSettings(saved: unknown): Settings {
+    const candidate = saved && typeof saved === 'object' ? saved as Partial<Settings> : {};
+    const settings = { ...DEFAULTS, ...candidate };
+    for (const key of ['transcriptionBaseUrl', 'cleanupBaseUrl'] as const) {
+      try { settings[key] = normalizeBaseUrl(settings[key]); } catch { settings[key] = DEFAULTS[key]; }
+    }
+    return settings;
+  }
   private cacheProgress(job: Job) { this.progressJobs.set(job.id, { id: job.id, state: job.state, targetPath: job.targetPath, createdAt: job.createdAt }); }
   private async saveJob(job: Job) { await this.store.save(job); this.cacheProgress(job); this.notify(); }
   private bindProgress(el: HTMLElement, file: () => TFile | null | undefined): () => void {
@@ -288,6 +301,13 @@ class VoiceSettings extends PluginSettingTab {
           new Notice(t('API-Schlüssel gespeichert.'));
         } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); }
       }));
+    const endpointDescription = t('Vollständige OpenAI-kompatible API-Basis, z. B. https://api.openai.com/v1. API-Schlüssel gehören nicht in diese URL.');
+    for (const [key, name] of [['transcriptionBaseUrl', t('Transkriptions-Basis-URL')], ['cleanupBaseUrl', t('Bereinigungs-Basis-URL')]] as const) {
+      new Setting(el).setName(name).setDesc(endpointDescription).addText(text => text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL).onChange(async value => {
+        try { this.plugin.settings[key] = normalizeBaseUrl(value); await this.plugin.saveSettings(); }
+        catch { new Notice(t('Ungültige API-Basis-URL.')); text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL); }
+      }));
+    }
     for (const [key, name] of [['transcriptionModel', t('Transkriptionsmodell')], ['cleanupModel', t('Bereinigungsmodell')]] as const) {
       new Setting(el).setName(name).addText(text => text.setValue(this.plugin.settings[key]).onChange(async value => { this.plugin.settings[key] = value.trim() || DEFAULTS[key]; await this.plugin.saveSettings(); }));
     }

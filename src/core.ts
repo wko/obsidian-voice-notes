@@ -3,7 +3,11 @@ import { getLocale } from './i18n';
 import { mainContentIsEmpty, type CleanupContext } from './context';
 import type { AppendPlan } from './append-journal';
 export const DEFAULT_PROMPT = `Carefully clean up my dictated addition. Remove filler words, repetitions, and abandoned sentence fragments. Correct obvious slips of the tongue. Organize the result into readable Markdown paragraphs and add short headings only when useful. Preserve the original language, tone, meaning, claims, uncertainty, examples, and level of detail. Do not infer new meaning, remove substance, or add information or advice. Return only the cleaned addition.`;
-export interface Options { transcriptionModel: string; cleanupModel: string; prompt: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; }
+/**
+ * Processing settings are copied into each job.  The endpoint fields are
+ * optional only to keep jobs saved by older plugin versions resumable.
+ */
+export interface Options { transcriptionModel: string; cleanupModel: string; transcriptionBaseUrl?: string; cleanupBaseUrl?: string; prompt: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; }
 export interface Job {
   id: string; targetPath: string; targetCreatedAt?: number; createdAt: number;
   audio: Blob | null; mime: string; duration: number; options: Options;
@@ -23,9 +27,9 @@ export function appendText(current: string, job: Job): string {
   if (job.options.keepTranscript && job.raw) lines.push('', `> [!note]- ${t('Originaltranskript')}`, ...job.raw.replace(/\r\n?/g, '\n').split('\n').map(line => `> ${line}`));
   return current + (current.endsWith('\n\n') || !current ? '' : current.endsWith('\n') ? '\n' : '\n\n') + lines.join('\n') + '\n';
 }
-export interface Transcriber { transcribe(audio: Blob, model: string, vocabulary?: string): Promise<string>; }
+export interface Transcriber { transcribe(audio: Blob, model: string, vocabulary?: string, baseUrl?: string): Promise<string>; }
 export interface CleanedResult { body: string; title?: string; }
-export interface Cleaner { clean(transcript: string, model: string, prompt: string, context?: CleanupContext & { requestTitle?: boolean }): Promise<CleanedResult>; }
+export interface Cleaner { clean(transcript: string, model: string, prompt: string, context?: CleanupContext & { requestTitle?: boolean }, baseUrl?: string): Promise<CleanedResult>; }
 export async function processJob(job: Job, services: { transcriber: Transcriber; cleaner: Cleaner; save(job: Job): Promise<void>; append(job: Job): Promise<void> }): Promise<void> {
   if (job.state === 'completed') return;
   try {
@@ -33,13 +37,13 @@ export async function processJob(job: Job, services: { transcriber: Transcriber;
     if (job.raw === undefined) {
       if (!job.audio) throw new Error(t('Die Audiodatei fehlt.'));
       job.state = 'transcribing'; await services.save(job);
-      const raw = await services.transcriber.transcribe(job.audio, job.options.transcriptionModel, job.options.vocabulary);
+      const raw = await services.transcriber.transcribe(job.audio, job.options.transcriptionModel, job.options.vocabulary, job.options.transcriptionBaseUrl);
       if (!raw.trim()) throw new Error(t('Keine Sprache erkannt. Die Aufnahme bleibt gespeichert.'));
       job.raw = raw; await services.save(job);
     }
     if (job.cleaned === undefined) {
       job.state = 'cleaning'; await services.save(job);
-      const cleaned = await services.cleaner.clean(job.raw, job.options.cleanupModel, job.options.prompt, { noteContext: job.options.useNoteContext ? job.noteContext : undefined, vocabulary: job.options.vocabulary, requestTitle: job.requestTitle });
+      const cleaned = await services.cleaner.clean(job.raw, job.options.cleanupModel, job.options.prompt, { noteContext: job.options.useNoteContext ? job.noteContext : undefined, vocabulary: job.options.vocabulary, requestTitle: job.requestTitle }, job.options.cleanupBaseUrl);
       if (!cleaned.body.trim()) throw new Error(t('Die Bereinigung enthält keinen Text.'));
       job.cleaned = cleaned.body; job.generatedTitle = cleaned.title; await services.save(job);
     }
