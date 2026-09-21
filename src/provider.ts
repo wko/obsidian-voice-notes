@@ -68,14 +68,22 @@ export class OpenAIProvider implements Transcriber, Cleaner {
 
   async transcribe(audio: Blob, model: string, vocabulary?: string, baseUrl?: string) {
     const ext = audio.type.includes('mp4') || audio.type.includes('m4a') ? 'm4a' : audio.type.includes('wav') ? 'wav' : 'webm';
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await audio.arrayBuffer();
+      if (!bytes.byteLength || bytes.byteLength !== audio.size) throw new Error('incomplete audio');
+    } catch { throw new Error(t('Gespeicherte Audiodaten können nicht gelesen werden. Bitte Audio-Download versuchen; falls er fehlschlägt, ist die Aufnahme möglicherweise beschädigt.')); }
     const form = new FormData();
-    form.append('file', audio, `recording.${ext}`);
+    form.append('file', new Blob([bytes], { type: audio.type }), `recording.${ext}`);
     form.append('model', model);
     form.append('response_format', 'json');
     if (vocabulary?.trim()) form.append('prompt', vocabulary.trim().slice(0, MAX_VOCABULARY_CHARS));
     // Obsidian's mobile HTTP API takes bytes, not FormData; Response supplies the boundary.
     const multipart = new Response(form);
-    const result = await this.request(baseUrl, 'audio/transcriptions', await multipart.arrayBuffer(), multipart.headers.get('content-type')!);
+    let multipartBytes: ArrayBuffer;
+    try { multipartBytes = await multipart.arrayBuffer(); }
+    catch { throw new Error(t('Gespeicherte Audiodaten können nicht gelesen werden. Bitte Audio-Download versuchen; falls er fehlschlägt, ist die Aufnahme möglicherweise beschädigt.')); }
+    const result = await this.request(baseUrl, 'audio/transcriptions', multipartBytes, multipart.headers.get('content-type')!);
     if (!isObject(result) || typeof result.text !== 'string') throw new Error(t('Unerwartete Transkriptionsantwort.'));
     return result.text;
   }

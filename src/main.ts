@@ -290,7 +290,7 @@ class VoiceSettings extends PluginSettingTab {
     const el = this.containerEl; el.empty();
     el.createEl('p', { text: t('Neue Aufnahmen und ihre Transkripte werden direkt an OpenAI übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
     let keyValue = this.plugin.apiKey.get();
-    new Setting(el).setName(t('OpenAI-Schlüssel')).setDesc(t('Ein OpenAI-API-Schlüssel für Transkription und Bereinigung.'))
+    new Setting(el).setName(t('OpenAI-Schlüssel')).setDesc(t('Ein OpenAI-API-Schlüssel für Transkription und Bereinigung. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt den Schlüssel nicht.'))
       .addText(text => {
         text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
         text.setPlaceholder(t('OpenAI-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });

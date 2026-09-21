@@ -37,7 +37,7 @@ Reload Obsidian, open **Settings → Community plugins**, and enable **Voice App
 ## Setup and use
 
 1. Open **Settings → Voice Append**.
-2. Enter one API key and select **Save**. The plugin stores the key through Obsidian Secret Storage; its regular settings contain only a reference.
+2. Enter one API key and select **Save** on each device. The plugin stores the key locally through Obsidian Secret Storage; it is not synced with the vault.
 3. Configure independent OpenAI-compatible base URLs and models for transcription and cleanup, plus the cleanup prompt, if needed. Enter the complete API base (for example `https://api.openai.com/v1`), not a request path. The same stored key is used for both endpoints.
 4. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
 5. Select **Stop & append** when finished. The recording is saved locally before network processing starts, and the note scrolls to the processing indicator.
@@ -60,7 +60,7 @@ Each job keeps a snapshot of its processing settings, so changing settings does 
 
 Voice Append sends new audio to the configured transcription endpoint and its transcript to the configured cleanup endpoint. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
 
-The API key is stored using Obsidian Secret Storage; endpoint URLs and models are ordinary plugin settings and no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
+The API key is stored using Obsidian Secret Storage under a stable, plugin-owned name. Existing keys stored under an earlier vault-ID-based name are migrated when unambiguous. Endpoint URLs and models are ordinary plugin settings; no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. New audio is read and stored as bytes before the plugin reports it saved. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
 
 Review [OpenAI's data controls](https://platform.openai.com/docs/guides/your-data) before using the plugin with sensitive material.
 
@@ -70,6 +70,7 @@ Review [OpenAI's data controls](https://platform.openai.com/docs/guides/your-dat
 - Keep Obsidian open while recording. Mobile operating systems can still stop the app when it moves to the background.
 - The Screen Wake Lock API is requested only while recording. Device support and power-saving rules can override it.
 - Audio chunks remain in memory until recording stops. An abrupt app termination can lose the active, unsaved segment.
+- Older recordings stored as browser Blobs are migrated to byte storage when readable. If an older Blob has lost its underlying data, retrying cannot recover the missing audio; try exporting it from **Recordings and status**.
 - Network requests have a 120-second wait budget. Retrying after a timeout may incur another API charge, but the append journal prevents the same result from being written twice when recovery is unambiguous.
 - The queue is local to one device. Concurrent edits or sync conflicts can require manual review.
 

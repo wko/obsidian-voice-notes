@@ -64,6 +64,8 @@ const english = {
   'Aufnahme löschen': 'Delete recording',
   'Neue Aufnahmen und ihre Transkripte werden direkt an OpenAI übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.': 'New recordings and transcripts are sent directly to OpenAI. Note context is sent only if you enable it below.',
   'OpenAI-Schlüssel': 'OpenAI API key',
+  'Ein OpenAI-API-Schlüssel für Transkription und Bereinigung. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt den Schlüssel nicht.': 'One OpenAI API key for transcription and cleanup. Save it once on each device; Obsidian Sync does not transfer the key.',
+  'Gespeicherte Audiodaten können nicht gelesen werden. Bitte Audio-Download versuchen; falls er fehlschlägt, ist die Aufnahme möglicherweise beschädigt.': 'Stored audio cannot be read. Try downloading it; if that fails, the recording may be damaged.',
   'Schlüssel in Obsidian Secret Storage auswählen oder anlegen. Die Plugin-Einstellungen speichern nur die Referenz.': 'Select or create a key in Obsidian Secret Storage. Plugin settings store only its reference.',
   'Transkriptionsmodell': 'Transcription model',
   'Transkriptions-Basis-URL': 'Transcription base URL',

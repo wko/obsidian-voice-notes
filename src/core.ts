@@ -11,6 +11,7 @@ export interface Options { transcriptionModel: string; cleanupModel: string; tra
 export interface Job {
   id: string; targetPath: string; targetCreatedAt?: number; createdAt: number;
   audio: Blob | null; mime: string; duration: number; options: Options;
+  audioBytes?: ArrayBuffer;
   state: 'queued' | 'transcribing' | 'cleaning' | 'appending' | 'completed' | 'failed';
   raw?: string; cleaned?: string; generatedTitle?: string; requestTitle?: boolean; completedAt?: number; error?: string;
   noteContext?: string;
