@@ -2,17 +2,17 @@
 
 ## Goal
 
-Produce one clean iPhone screen recording that demonstrates the complete core loop, then derive all public assets from that master. The demo should make the value clear without sound: speak a rough thought, show processing, and reveal a polished addition in the open note.
+Produce one clean iPhone screen recording that demonstrates the complete core loop, then derive all public assets from that master. The demo is self-referential: use Voice Append to dictate a short introduction to Voice Append, show processing, and reveal the polished product description in the open note. Captions must make the value clear without sound.
 
 ## Deliverables
 
 1. **README and Obsidian plugin page GIF**
-   - 18–22 seconds, silent loop
-   - 720 × 1280, 10–12 fps
+   - 25–30 seconds, silent loop
+   - 720 × 1280, 8–10 fps
    - Display at approximately 360 px wide in the README
    - Aim for less than 8 MB
 2. **Social video**
-   - 25–35 seconds, 1080 × 1920
+   - 35–45 seconds, 1080 × 1920
    - H.264 MP4 with `yuv420p` pixel format
    - Burned-in English captions so it works without sound
 3. **Static cover image**
@@ -26,35 +26,37 @@ The Obsidian plugin directory uses the repository README on the plugin detail pa
 | Time | Scene | On-screen message |
 | --- | --- | --- |
 | 0–2 s | Short title card | Turn a quick voice thought into polished notes |
-| 2–5 s | Open a prepared note; the centered microphone button is visible | Add to any note without typing |
-| 5–10 s | Tap the button and dictate one short thought | Live recording state and timer remain visible |
-| 10–14 s | Stop the recording; show the real processing state and spinner | Transcribing and cleaning up… |
-| 14–18 s | Follow the insertion point as the cleaned text appears | Cleaned and appended in place |
-| 18–22 s | Hold on the finished note and return to the opening frame | Voice Append for Obsidian |
+| 2–4 s | Open the prepared Voice Append note; the centered microphone button is visible | Add to any note without typing |
+| 4–19 s | Tap the button and dictate the product introduction | Live recording state, captions, and timer remain visible |
+| 19–23 s | Stop the recording; show the real processing state and spinner | Transcribing and cleaning up… |
+| 23–28 s | Follow the insertion point as the product description appears | Cleaned and appended in place |
+| 28–30 s | Hold on the finished note and return to the opening frame | Voice Append for Obsidian |
 
-For the longer social cut, use seconds 22–28 to show the mobile toolbar command and the compact provider preset setting. Do not show the API key field. End with the repository URL and: “OpenAI, OpenRouter, or custom providers.”
+For the longer social cut, add a short close-up of the mobile toolbar command and the compact provider preset setting after the core flow. Do not show the API key field. End with the repository URL and: “OpenAI, OpenRouter, or custom providers.”
 
 ## Demo script
 
-Prepare a note named **Launch checklist** containing:
+Prepare a note named **Voice Append** containing:
 
 ```markdown
-# Launch checklist
+# Voice Append
 
-- Invite beta testers
+## What it does
 ```
 
 Dictate:
 
-> And remind me to ask the testers about mobile onboarding and collect their feedback by Friday.
+> Today I’m introducing Voice Append, an Obsidian voice notes plugin. It lets you append any thought to the note you already have open, just by speaking. Record offline, transcribe when you’re back online, and choose your providers, models, cleanup prompt, and whether to include note context.
 
 Expected appended result:
 
 ```markdown
-- Ask beta testers about mobile onboarding and collect feedback by Friday.
+Voice Append lets you add any thought to the note you already have open simply by speaking.
+
+You can record offline and let the plugin transcribe and clean up the recording when you are back online. You choose the providers, models, cleanup prompt, and whether note context is included.
 ```
 
-This example shows transcription, cleanup, and appending without relying on features that are still on the roadmap.
+This makes the demonstration explain itself while visibly showing recording, offline-safe storage, transcription, cleanup, and appending. The wording stays within features implemented in version 1.0.0.
 
 ## Recording setup
 
