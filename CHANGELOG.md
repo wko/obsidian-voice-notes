@@ -2,6 +2,13 @@
 
 All notable changes to Voice Append are documented here.
 
+## 1.0.1
+
+- Make production builds deterministic so published assets match the repository build.
+- Expose settings through Obsidian's searchable settings definitions while keeping compatibility with older supported releases.
+- Remove the one-time full-vault migration scan.
+- Use window-scoped timers for pop-out window compatibility.
+
 ## 1.0.0
 
 - Record from a note, the command palette, the ribbon, or Obsidian's mobile toolbar.

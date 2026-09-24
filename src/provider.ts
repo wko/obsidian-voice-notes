@@ -49,16 +49,15 @@ export class OpenAIProvider implements Transcriber, Cleaner {
     if (authMode !== 'none' && !key) throw new Error(t('Bitte in den Voice-Append-Einstellungen den benötigten Provider-API-Schlüssel eingeben.'));
     const url = `${normalizeBaseUrl(baseUrl)}/${path}`;
     let response: HttpResponse;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<Window['setTimeout']> | undefined;
     try {
-      response = await Promise.race([
-        this.transport({ url, method: 'POST', headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': contentType }, body, throw: false }),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 120000); }),
-      ]);
+      const requests: PromiseLike<HttpResponse>[] = [this.transport({ url, method: 'POST', headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': contentType }, body, throw: false })];
+      if (typeof window !== 'undefined') requests.push(new Promise<never>((_, reject) => { timer = window.setTimeout(() => reject(new Error('timeout')), 120000); }));
+      response = await Promise.race(requests);
     } catch {
       throw new Error(t('Der konfigurierte Provider ist nicht erreichbar. Die Aufnahme bleibt gespeichert.'));
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer) window.clearTimeout(timer);
     }
     if (response.status === 401) throw new Error(t('Provider-API-Schlüssel ungültig. Bitte Einstellungen prüfen.'));
     if (response.status === 429) throw new Error(t('Provider-Limit erreicht. Bitte später erneut versuchen oder Guthaben prüfen.'));

@@ -1,12 +1,12 @@
 import { t, setLanguage, getLocale, type Message } from './i18n';
-import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App } from 'obsidian';
+import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App, type SettingDefinition, type SettingDefinitionItem } from 'obsidian';
 import { DEFAULT_PROMPT, DEFAULT_TITLE_PROMPT, processJob, type Job } from './core';
 import { footerExtension, voiceButton } from './editor';
 import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
 import { RecorderModal } from './recorder';
 import { JobStore, type JobSummary } from './store';
 import { ApiKey, DeviceSecret } from './api-key';
-import { createAppendPlan, inspectAppend, applyAppendPlan, removeLegacyComments } from './append-journal';
+import { createAppendPlan, inspectAppend, applyAppendPlan } from './append-journal';
 import { noteProgress, type ProgressJob } from './progress';
 import { prepareNoteContext, mainContentIsEmpty, MAX_VOCABULARY_CHARS } from './context';
 import { availableBasename, titledBasename } from './title';
@@ -287,21 +287,6 @@ export default class VoiceAppend extends Plugin {
     this.targetFiles.set(job.id, file); await this.saveJob(job);
   }
   private async initializeNotes() {
-    if (!this.settings.legacyCommentsRemoved) {
-      // Remove only this plugin's old, exact UUID comment lines. All other Markdown is preserved.
-      for (const file of this.app.vault.getMarkdownFiles()) {
-        const view = this.app.workspace.getLeavesOfType('markdown').map(leaf => leaf.view).find((view): view is MarkdownView => view instanceof MarkdownView && view.file === file && view.getMode() === 'source');
-        if (view) {
-          const current = view.editor.getValue();
-          const matches = [...current.matchAll(/^<!-- voice-append: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} -->[ \t]*(?:\r?\n|$)/gmi)];
-          if (matches.length) view.editor.transaction({ changes: matches.map(match => ({ from: view.editor.offsetToPos(match.index), to: view.editor.offsetToPos(match.index + match[0].length), text: '' })) });
-        } else {
-          const current = await this.app.vault.read(file);
-          if (removeLegacyComments(current) !== current) await this.app.vault.process(file, removeLegacyComments);
-        }
-      }
-      this.settings.legacyCommentsRemoved = true; await this.saveSettings();
-    }
     this.notesReady = true;
     this.refreshReadingFooters(); await this.runQueue();
   }
@@ -371,110 +356,116 @@ class ConfigurationTestModal extends Modal {
     }
   }
 }
+type VoiceSettingSpec = { name: string; desc: string; visible?: () => boolean; render?: (setting: Setting) => void };
+type VoiceSettingGroupSpec = { heading: string; items: VoiceSettingSpec[] };
 class VoiceSettings extends PluginSettingTab {
   constructor(app: App, private plugin: VoiceAppend) { super(app, plugin); }
-  display() {
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return this.groups().map(group => ({
+      type: 'group', heading: group.heading,
+      items: group.items.filter(item => !item.visible || item.visible()).map(item => (item.render
+        ? { name: item.name, desc: item.desc, render: item.render }
+        : { name: item.name, desc: item.desc }) as SettingDefinition),
+    }));
+  }
+  display() { this.renderFallback(); }
+  private refreshSettings() {
+    const update = (this as unknown as { update?: () => void }).update;
+    if (typeof update === 'function') update.call(this); else this.renderFallback();
+  }
+  private renderFallback() {
     const el = this.containerEl; el.empty();
-    el.createEl('p', { text: t('Neue Aufnahmen werden direkt an die konfigurierten Transkriptions- und LLM-Provider übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
-    new Setting(el).setName(t('Provider-Einrichtung')).setDesc(t('Die Standardansicht verwendet einen gemeinsamen OpenAI-kompatiblen Provider. Weitere Optionen sind unter den erweiterten Einstellungen verfügbar.')).setHeading();
-    new Setting(el).setName(t('Provider-Voreinstellung')).setDesc(t('Setzt passende Endpoints und Standardmodelle. Custom behält manuell konfigurierte Werte bei.')).addDropdown(dropdown => dropdown
-      .addOption('openai', 'OpenAI')
-      .addOption('openrouter', 'OpenRouter')
-      .addOption('custom', t('Benutzerdefiniert'))
-      .setValue(this.plugin.settings.providerPreset)
-      .onChange(async value => { applyPreset(this.plugin.settings, value as ProviderPreset); await this.plugin.saveSettings(); this.display(); }));
+    for (const group of this.groups()) {
+      new Setting(el).setName(group.heading).setHeading();
+      for (const item of group.items) {
+        if (item.visible && !item.visible()) continue;
+        const setting = new Setting(el).setName(item.name).setDesc(item.desc); item.render?.(setting);
+      }
+    }
+  }
+  private groups(): VoiceSettingGroupSpec[] {
     let keyValue = this.plugin.apiKey.get();
+    let transcriptionKey = this.plugin.transcriptionApiKey.get();
     const saveMainKey = async () => {
       try {
         this.plugin.apiKey.set(keyValue); delete this.plugin.settings.secretId; await this.plugin.saveSettings();
         new Notice(t('API-Schlüssel gespeichert.')); return true;
       } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); return false; }
     };
-    new Setting(el).setName(t('LLM-Provider-API-Schlüssel')).setDesc(t('Wird für den LLM-Provider und standardmäßig auch für den Transkriptions-Provider verwendet. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt ihn nicht.'))
-      .addText(text => {
-        text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
-        text.setPlaceholder(t('LLM-Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
-      })
-      .addButton(button => button.setButtonText(t('Speichern')).onClick(saveMainKey));
-    for (const [key, name, description] of [
-      ['transcriptionModel', t('Transkriptionsmodell'), t('Modellname beim Transkriptions-Provider. Gilt für neue Aufnahmen.')],
-      ['cleanupModel', t('LLM-Modell'), t('Modellname beim LLM-Provider für Bereinigung und optionale Titel. Gilt für neue Aufnahmen.')],
-    ] as const) {
-      new Setting(el).setName(name).setDesc(description).addText(text => text.setValue(this.plugin.settings[key]).onChange(async value => { this.plugin.settings[key] = value.trim() || DEFAULTS[key]; await this.plugin.saveSettings(); }));
-    }
-    new Setting(el).setName(t('Konfiguration testen')).setDesc(t('Speichert den eingegebenen Schlüssel und prüft Transkription sowie Bereinigung mit einer kurzen mitgelieferten Testaufnahme. Verändert keine Notiz.'))
-      .addButton(button => button.setButtonText(t('Test starten')).setCta().onClick(async () => { if (await saveMainKey()) this.plugin.openConfigurationTest(); }));
-    new Setting(el).setName(t('Erweiterte Provider-Einstellungen')).setDesc(t('Zeigt individuelle Endpoints und Authentifizierung für lokale oder getrennte Provider.')).addToggle(toggle => toggle
-      .setValue(this.plugin.settings.advancedProviderSettings)
-      .onChange(async value => { this.plugin.settings.advancedProviderSettings = value; await this.plugin.saveSettings(); this.display(); }));
-    if (this.plugin.settings.advancedProviderSettings) this.displayAdvancedProviderSettings(el);
-    new Setting(el).setName(t('Verarbeitung')).setDesc(t('Legt fest, wie neue Aufnahmen bereinigt und in Notizen eingefügt werden.')).setHeading();
-    new Setting(el).setName(t('Bereinigungs-Prompt')).setDesc(t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.')).addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); });
-    new Setting(el).setName(t('Standard-Prompt wiederherstellen')).setDesc(t('Setzt den Bereinigungs-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
-    new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Titel für leere Notizen erzeugen')).setDesc(t('Erzeugt beim Bereinigen einen Titel und benennt die Notiz um, wenn sie außer Frontmatter noch keinen Inhalt hat.')).addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Titel-Prompt')).setDesc(t('Gilt für neue Aufnahmen und wird beim Cleanup nur dann als eigene Titelanweisung eingefügt, wenn ein Titel erzeugt werden soll.')).addTextArea(text => {
-      text.inputEl.rows = 4; text.inputEl.addClass('voice-append-prompt');
-      text.setValue(this.plugin.settings.titlePrompt ?? DEFAULT_TITLE_PROMPT).onChange(async value => { this.plugin.settings.titlePrompt = value || DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); });
-    });
-    new Setting(el).setName(t('Standard-Titel-Prompt wiederherstellen')).setDesc(t('Setzt den Titel-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.titlePrompt = DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); this.display(); }));
-    new Setting(el).setName(t('Verhalten des Dateinamens')).setDesc(t('Anhängen behält bestehende Namen wie Zeitstempel von Unique Notes bei. Ersetzen verwendet nur den erzeugten Titel.')).addDropdown(dropdown => dropdown
-      .addOption('append', t('An bestehenden Dateinamen anhängen'))
-      .addOption('replace', t('Bestehenden Dateinamen ersetzen'))
-      .setValue(this.plugin.settings.titleFilenameMode ?? 'append')
-      .onChange(async value => { this.plugin.settings.titleFilenameMode = value === 'replace' ? 'replace' : 'append'; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Originaltranskript anhängen')).setDesc(t('Standardmäßig aus. Bei Aktivierung als eingeklappter Abschnitt unter der Ergänzung.')).addToggle(toggle => toggle.setValue(this.plugin.settings.keepTranscript).onChange(async value => { this.plugin.settings.keepTranscript = value; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Datierte Überschrift')).setDesc(t('Fügt vor jeder neuen Ergänzung eine Überschrift mit Datum und Uhrzeit ein.')).addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Notizkontext beim Bereinigen verwenden')).setDesc(t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an den LLM-Provider. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.')).addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Bekannte Namen und Konzepte')).setDesc(t('Optional. Namen, Fachbegriffe und bevorzugte Schreibweisen, etwa „Obsidian; Walter Forkel; Fractals“. Wird für Transkription und Bereinigung verwendet. Maximal 2.000 Zeichen.')).addTextArea(text => {
-      text.inputEl.rows = 4; text.inputEl.maxLength = MAX_VOCABULARY_CHARS;
-      text.setValue(this.plugin.settings.vocabulary ?? '').onChange(async value => { this.plugin.settings.vocabulary = value.slice(0, MAX_VOCABULARY_CHARS); await this.plugin.saveSettings(); });
-    });
-    new Setting(el).setName(t('Gespeicherte Aufnahmen')).setDesc(t('Lokal auf diesem Gerät. Erfolgreiche Audiodateien bleiben sieben Tage erhalten. Offene Aufnahmen werden nicht automatisch gelöscht.')).addButton(button => button.setButtonText(t('Aufnahmen und Status')).onClick(() => this.plugin.openOutbox()));
-    new Setting(el).setName(t('Über Voice Append')).setDesc(t('Entwickler, Dokumentation und direkte Wege für Feedback.')).setHeading();
-    new Setting(el).setName(t('Erstellt von Walter Forkel')).setDesc(t('Öffnet das GitHub-Profil des Entwicklers.')).addButton(button => button.setButtonText(t('Profil öffnen')).onClick(() => window.open('https://github.com/wko', '_blank')));
-    new Setting(el).setName(t('Repository und Dokumentation')).setDesc(t('Quellcode, Dokumentation und aktuelle Entwicklung auf GitHub.')).addButton(button => button.setButtonText(t('Repository öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes', '_blank')));
-    new Setting(el).setName(t('Fehler melden')).setDesc(t('Erstellt einen strukturierten Bugreport. Entferne vorher API-Schlüssel und private Notizinhalte.')).addButton(button => button.setButtonText(t('Bugreport öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=bug_report.yml', '_blank')));
-    new Setting(el).setName(t('Funktion vorschlagen')).setDesc(t('Beschreibe deinen Anwendungsfall und die gewünschte Verbesserung.')).addButton(button => button.setButtonText(t('Feature-Anfrage öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=feature_request.yml', '_blank')));
-    el.createEl('p', { text: t('Erste Entwicklungsversion: Aufnahmen bei geöffneter App. Displaysperre oder ein vom System beendeter Prozess können die laufende, noch nicht gespeicherte Aufnahme unterbrechen.'), cls: 'voice-append-hint' });
-  }
-  private displayAdvancedProviderSettings(el: HTMLElement) {
     const endpointDescription = t('Vollständige OpenAI-kompatible API-Basis, z. B. https://api.openai.com/v1. API-Schlüssel gehören nicht in diese URL.');
-    new Setting(el).setName(t('Getrennte Provider verwenden')).setDesc(t('Ermöglicht unterschiedliche Endpoints und Zugangsdaten für Transkription und Bereinigung.')).addToggle(toggle => toggle
-      .setValue(this.plugin.settings.useSeparateProviders)
-      .onChange(async value => {
-        this.plugin.settings.useSeparateProviders = value;
-        if (!value) this.plugin.settings.transcriptionBaseUrl = this.plugin.settings.cleanupBaseUrl;
-        await this.plugin.saveSettings(); this.display();
-      }));
-    const endpoint = (key: 'transcriptionBaseUrl' | 'cleanupBaseUrl', name: string) => new Setting(el).setName(name).setDesc(endpointDescription).addText(text => text
-      .setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL)
-      .onChange(async value => {
+    const endpoint = (key: 'transcriptionBaseUrl' | 'cleanupBaseUrl', name: string, visible: () => boolean): VoiceSettingSpec => ({
+      name, desc: endpointDescription, visible,
+      render: setting => { setting.addText(text => text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL).onChange(async value => {
         try {
           const normalized = normalizeBaseUrl(value); this.plugin.settings[key] = normalized;
           if (!this.plugin.settings.useSeparateProviders) this.plugin.settings.transcriptionBaseUrl = this.plugin.settings.cleanupBaseUrl = normalized;
           this.plugin.settings.providerPreset = 'custom'; await this.plugin.saveSettings();
         } catch { new Notice(t('Ungültige API-Basis-URL.')); text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL); }
-      }));
-    if (this.plugin.settings.useSeparateProviders) {
-      endpoint('transcriptionBaseUrl', t('Transkriptions-Provider-Basis-URL'));
-      endpoint('cleanupBaseUrl', t('LLM-Provider-Basis-URL'));
-    } else endpoint('cleanupBaseUrl', t('Gemeinsame Provider-Basis-URL'));
-    new Setting(el).setName(t('LLM-Authentifizierung')).setDesc(t('API-Schlüssel verwendet den oben gespeicherten LLM-Provider-Schlüssel. Ohne Authentifizierung ist für lokale Provider gedacht.')).addDropdown(dropdown => dropdown
-      .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
-      .setValue(this.plugin.settings.cleanupAuthMode ?? 'shared')
-      .onChange(async value => { this.plugin.settings.cleanupAuthMode = value === 'none' ? 'none' : 'shared'; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Transkriptions-Authentifizierung')).setDesc(t('Kann den LLM-Schlüssel teilen, einen eigenen lokalen Schlüssel verwenden oder den Authorization-Header weglassen.')).addDropdown(dropdown => dropdown
-      .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('separate', t('Separaten Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
-      .setValue(this.plugin.settings.transcriptionAuthMode ?? 'shared')
-      .onChange(async value => { this.plugin.settings.transcriptionAuthMode = value === 'separate' || value === 'none' ? value : 'shared'; await this.plugin.saveSettings(); this.display(); }));
-    if (this.plugin.settings.transcriptionAuthMode === 'separate') {
-      let transcriptionKey = this.plugin.transcriptionApiKey.get();
-      new Setting(el).setName(t('Transkriptions-Provider-API-Schlüssel')).setDesc(t('Wird nur für Transkriptionsanfragen verwendet und lokal im Obsidian Secret Storage gespeichert.')).addText(text => {
+      })); },
+    });
+    const providerItems: VoiceSettingSpec[] = [
+      { name: t('Datenverarbeitung'), desc: t('Neue Aufnahmen werden direkt an die konfigurierten Transkriptions- und LLM-Provider übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') },
+      { name: t('Provider-Voreinstellung'), desc: t('Setzt passende Endpoints und Standardmodelle. Custom behält manuell konfigurierte Werte bei.'), render: setting => { setting.addDropdown(dropdown => dropdown
+        .addOption('openai', 'OpenAI').addOption('openrouter', t('OpenRouter')).addOption('custom', t('Benutzerdefiniert'))
+        .setValue(this.plugin.settings.providerPreset).onChange(async value => { applyPreset(this.plugin.settings, value as ProviderPreset); await this.plugin.saveSettings(); this.refreshSettings(); })); } },
+      { name: t('LLM-Provider-API-Schlüssel'), desc: t('Wird für den LLM-Provider und standardmäßig auch für den Transkriptions-Provider verwendet. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt ihn nicht.'), render: setting => { setting.addText(text => {
+        text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
+        text.setPlaceholder(t('LLM-Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
+      }).addButton(button => button.setButtonText(t('Speichern')).onClick(saveMainKey)); } },
+      { name: t('Transkriptionsmodell'), desc: t('Modellname beim Transkriptions-Provider. Gilt für neue Aufnahmen.'), render: setting => { setting.addText(text => text.setValue(this.plugin.settings.transcriptionModel).onChange(async value => { this.plugin.settings.transcriptionModel = value.trim() || DEFAULTS.transcriptionModel; await this.plugin.saveSettings(); })); } },
+      { name: t('LLM-Modell'), desc: t('Modellname beim LLM-Provider für Bereinigung und optionale Titel. Gilt für neue Aufnahmen.'), render: setting => { setting.addText(text => text.setValue(this.plugin.settings.cleanupModel).onChange(async value => { this.plugin.settings.cleanupModel = value.trim() || DEFAULTS.cleanupModel; await this.plugin.saveSettings(); })); } },
+      { name: t('Konfiguration testen'), desc: t('Speichert den eingegebenen Schlüssel und prüft Transkription sowie Bereinigung mit einer kurzen mitgelieferten Testaufnahme. Verändert keine Notiz.'), render: setting => { setting.addButton(button => button.setButtonText(t('Test starten')).setCta().onClick(async () => { if (await saveMainKey()) this.plugin.openConfigurationTest(); })); } },
+      { name: t('Erweiterte Provider-Einstellungen'), desc: t('Zeigt individuelle Endpoints und Authentifizierung für lokale oder getrennte Provider.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.advancedProviderSettings).onChange(async value => { this.plugin.settings.advancedProviderSettings = value; await this.plugin.saveSettings(); this.refreshSettings(); })); } },
+      { name: t('Getrennte Provider verwenden'), desc: t('Ermöglicht unterschiedliche Endpoints und Zugangsdaten für Transkription und Bereinigung.'), visible: () => this.plugin.settings.advancedProviderSettings, render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.useSeparateProviders).onChange(async value => {
+        this.plugin.settings.useSeparateProviders = value;
+        if (!value) this.plugin.settings.transcriptionBaseUrl = this.plugin.settings.cleanupBaseUrl;
+        await this.plugin.saveSettings(); this.refreshSettings();
+      })); } },
+      endpoint('transcriptionBaseUrl', t('Transkriptions-Provider-Basis-URL'), () => this.plugin.settings.advancedProviderSettings && this.plugin.settings.useSeparateProviders),
+      endpoint('cleanupBaseUrl', this.plugin.settings.useSeparateProviders ? t('LLM-Provider-Basis-URL') : t('Gemeinsame Provider-Basis-URL'), () => this.plugin.settings.advancedProviderSettings),
+      { name: t('LLM-Authentifizierung'), desc: t('API-Schlüssel verwendet den oben gespeicherten LLM-Provider-Schlüssel. Ohne Authentifizierung ist für lokale Provider gedacht.'), visible: () => this.plugin.settings.advancedProviderSettings, render: setting => { setting.addDropdown(dropdown => dropdown
+        .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
+        .setValue(this.plugin.settings.cleanupAuthMode ?? 'shared').onChange(async value => { this.plugin.settings.cleanupAuthMode = value === 'none' ? 'none' : 'shared'; await this.plugin.saveSettings(); })); } },
+      { name: t('Transkriptions-Authentifizierung'), desc: t('Kann den LLM-Schlüssel teilen, einen eigenen lokalen Schlüssel verwenden oder den Authorization-Header weglassen.'), visible: () => this.plugin.settings.advancedProviderSettings, render: setting => { setting.addDropdown(dropdown => dropdown
+        .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('separate', t('Separaten Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
+        .setValue(this.plugin.settings.transcriptionAuthMode ?? 'shared').onChange(async value => { this.plugin.settings.transcriptionAuthMode = value === 'separate' || value === 'none' ? value : 'shared'; await this.plugin.saveSettings(); this.refreshSettings(); })); } },
+      { name: t('Transkriptions-Provider-API-Schlüssel'), desc: t('Wird nur für Transkriptionsanfragen verwendet und lokal im Obsidian Secret Storage gespeichert.'), visible: () => this.plugin.settings.advancedProviderSettings && this.plugin.settings.transcriptionAuthMode === 'separate', render: setting => { setting.addText(text => {
         text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
         text.setPlaceholder(t('Transkriptions-Provider-API-Schlüssel')).setValue(transcriptionKey).onChange(value => { transcriptionKey = value; });
-      }).addButton(button => button.setButtonText(t('Speichern')).onClick(() => { try { this.plugin.transcriptionApiKey.set(transcriptionKey); new Notice(t('API-Schlüssel gespeichert.')); } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); } }));
-    }
+      }).addButton(button => button.setButtonText(t('Speichern')).onClick(() => { try { this.plugin.transcriptionApiKey.set(transcriptionKey); new Notice(t('API-Schlüssel gespeichert.')); } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); } })); } },
+    ];
+    const processingItems: VoiceSettingSpec[] = [
+      { name: t('Bereinigungs-Prompt'), desc: t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.'), render: setting => { setting.addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); }); } },
+      { name: t('Standard-Prompt wiederherstellen'), desc: t('Setzt den Bereinigungs-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.'), render: setting => { setting.addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.refreshSettings(); })); } },
+      { name: t('Aufnahme-Button in Notizen anzeigen'), desc: t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); })); } },
+      { name: t('Titel für leere Notizen erzeugen'), desc: t('Erzeugt beim Bereinigen einen Titel und benennt die Notiz um, wenn sie außer Frontmatter noch keinen Inhalt hat.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); })); } },
+      { name: t('Titel-Prompt'), desc: t('Gilt für neue Aufnahmen und wird beim Cleanup nur dann als eigene Titelanweisung eingefügt, wenn ein Titel erzeugt werden soll.'), render: setting => { setting.addTextArea(text => {
+        text.inputEl.rows = 4; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.titlePrompt ?? DEFAULT_TITLE_PROMPT).onChange(async value => { this.plugin.settings.titlePrompt = value || DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); });
+      }); } },
+      { name: t('Standard-Titel-Prompt wiederherstellen'), desc: t('Setzt den Titel-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.'), render: setting => { setting.addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.titlePrompt = DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); this.refreshSettings(); })); } },
+      { name: t('Verhalten des Dateinamens'), desc: t('Anhängen behält bestehende Namen wie Zeitstempel von Unique Notes bei. Ersetzen verwendet nur den erzeugten Titel.'), render: setting => { setting.addDropdown(dropdown => dropdown
+        .addOption('append', t('An bestehenden Dateinamen anhängen')).addOption('replace', t('Bestehenden Dateinamen ersetzen'))
+        .setValue(this.plugin.settings.titleFilenameMode ?? 'append').onChange(async value => { this.plugin.settings.titleFilenameMode = value === 'replace' ? 'replace' : 'append'; await this.plugin.saveSettings(); })); } },
+      { name: t('Originaltranskript anhängen'), desc: t('Standardmäßig aus. Bei Aktivierung als eingeklappter Abschnitt unter der Ergänzung.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.keepTranscript).onChange(async value => { this.plugin.settings.keepTranscript = value; await this.plugin.saveSettings(); })); } },
+      { name: t('Datierte Überschrift'), desc: t('Fügt vor jeder neuen Ergänzung eine Überschrift mit Datum und Uhrzeit ein.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); })); } },
+      { name: t('Notizkontext beim Bereinigen verwenden'), desc: t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an den LLM-Provider. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); })); } },
+      { name: t('Bekannte Namen und Konzepte'), desc: t('Optional. Namen, Fachbegriffe und bevorzugte Schreibweisen, etwa „Obsidian; Walter Forkel; Fractals“. Wird für Transkription und Bereinigung verwendet. Maximal 2.000 Zeichen.'), render: setting => { setting.addTextArea(text => {
+        text.inputEl.rows = 4; text.inputEl.maxLength = MAX_VOCABULARY_CHARS; text.setValue(this.plugin.settings.vocabulary ?? '').onChange(async value => { this.plugin.settings.vocabulary = value.slice(0, MAX_VOCABULARY_CHARS); await this.plugin.saveSettings(); });
+      }); } },
+      { name: t('Gespeicherte Aufnahmen'), desc: t('Lokal auf diesem Gerät. Erfolgreiche Audiodateien bleiben sieben Tage erhalten. Offene Aufnahmen werden nicht automatisch gelöscht.'), render: setting => { setting.addButton(button => button.setButtonText(t('Aufnahmen und Status')).onClick(() => this.plugin.openOutbox())); } },
+    ];
+    const aboutItems: VoiceSettingSpec[] = [
+      { name: t('Erstellt von Walter Forkel'), desc: t('Öffnet das GitHub-Profil des Entwicklers.'), render: setting => { setting.addButton(button => button.setButtonText(t('Profil öffnen')).onClick(() => window.open('https://github.com/wko', '_blank'))); } },
+      { name: t('Repository und Dokumentation'), desc: t('Quellcode, Dokumentation und aktuelle Entwicklung auf GitHub.'), render: setting => { setting.addButton(button => button.setButtonText(t('Repository öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes', '_blank'))); } },
+      { name: t('Fehler melden'), desc: t('Erstellt einen strukturierten Bugreport. Entferne vorher API-Schlüssel und private Notizinhalte.'), render: setting => { setting.addButton(button => button.setButtonText(t('Bugreport öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=bug_report.yml', '_blank'))); } },
+      { name: t('Funktion vorschlagen'), desc: t('Beschreibe deinen Anwendungsfall und die gewünschte Verbesserung.'), render: setting => { setting.addButton(button => button.setButtonText(t('Feature-Anfrage öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=feature_request.yml', '_blank'))); } },
+      { name: t('Aufnahmegrenzen'), desc: t('Erste Entwicklungsversion: Aufnahmen bei geöffneter App. Displaysperre oder ein vom System beendeter Prozess können die laufende, noch nicht gespeicherte Aufnahme unterbrechen.') },
+    ];
+    return [
+      { heading: t('Provider-Einrichtung'), items: providerItems },
+      { heading: t('Verarbeitung'), items: processingItems },
+      { heading: t('Über Voice Append'), items: aboutItems },
+    ];
   }
 }
 class Outbox extends Modal {

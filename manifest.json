@@ -1,7 +1,7 @@
 {
   "id": "voice-append",
   "name": "Voice Append",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.11.4",
   "description": "Record, transcribe, clean up, and append thoughts with configurable providers.",
   "author": "Walter Forkel",

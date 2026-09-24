@@ -101,13 +101,13 @@ npm run build
 npm run dev
 ```
 
-`npm run build` type-checks the project and writes a development build to `main.js`. `npm run dev` watches the source files. Set `OBSIDIAN_PLUGIN_DIR` to install successful development builds into a test vault automatically:
+`npm run build` type-checks the project and writes the production bundle to `main.js` and `dist/main.js`. `npm run dev` watches the source files and includes the local test commands and an inline source map. Set `OBSIDIAN_PLUGIN_DIR` to install successful builds into a test vault automatically:
 
 ```sh
 OBSIDIAN_PLUGIN_DIR="/path/to/Test Vault/.obsidian/plugins/voice-append" npm run dev
 ```
 
-Development builds include two local test commands. Release builds omit them and source maps. Run `npm run release` to create the distributable files in `dist/`.
+Development builds include two local test commands. Production builds omit them and source maps. Run `npm run release` to create the distributable files in both the repository root and `dist/`.
 
 The processing path is:
 

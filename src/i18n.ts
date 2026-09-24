@@ -1,4 +1,7 @@
 const english = {
+  'OpenRouter': 'OpenRouter',
+  'Datenverarbeitung': 'Data handling',
+  'Aufnahmegrenzen': 'Recording limits',
   'Die Notiz wurde während einer unterbrochenen Ergänzung geändert. Bitte den Text prüfen; zur Sicherheit wird nichts erneut angehängt.': 'The note changed during an interrupted append. Please check the text; nothing will be appended again automatically.',
   'Die Notiz wird gerade geändert. Bitte die Ergänzung erneut versuchen.': 'The note is being edited. Please retry the append.',
   'Lab: Fortschrittsanzeige testen (ohne API)': 'Lab: Preview progress (no API)',

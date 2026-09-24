@@ -9,7 +9,6 @@ export interface Settings extends Options {
   settingsVersion: number;
   vaultId: string;
   secretId?: string;
-  legacyCommentsRemoved?: boolean;
   showInlineButton: boolean;
   providerPreset: ProviderPreset;
   advancedProviderSettings: boolean;
