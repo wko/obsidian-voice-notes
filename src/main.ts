@@ -1,5 +1,5 @@
 import { t, setLanguage, getLocale, type Message } from './i18n';
-import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, setIcon, type TAbstractFile, type App } from 'obsidian';
+import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App } from 'obsidian';
 import { DEFAULT_PROMPT, processJob, type Job, type Options } from './core';
 import { footerExtension, voiceButton } from './editor';
 import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
@@ -9,9 +9,10 @@ import { ApiKey } from './api-key';
 import { createAppendPlan, inspectAppend, applyAppendPlan, removeLegacyComments } from './append-journal';
 import { noteProgress, type ProgressJob } from './progress';
 import { prepareNoteContext, mainContentIsEmpty, MAX_VOCABULARY_CHARS } from './context';
+import { availableBasename, titledBasename } from './title';
 interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; showInlineButton: boolean; }
 declare const VOICE_APPEND_LAB: boolean;
-const DEFAULTS: Settings = { vaultId: '', transcriptionBaseUrl: OPENAI_BASE_URL, cleanupBaseUrl: OPENAI_BASE_URL, transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, showInlineButton: true };
+const DEFAULTS: Settings = { vaultId: '', transcriptionBaseUrl: OPENAI_BASE_URL, cleanupBaseUrl: OPENAI_BASE_URL, transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, titleFilenameMode: 'append', showInlineButton: true };
 const LABELS: Record<Job['state'], Message> = { queued: 'Wartet auf Verarbeitung', transcribing: 'Wird transkribiert', cleaning: 'Wird bereinigt', appending: 'Wird angehängt', completed: 'Angehängt', failed: 'Benötigt Aufmerksamkeit' };
 export default class VoiceAppend extends Plugin {
   settings!: Settings;
@@ -89,6 +90,7 @@ export default class VoiceAppend extends Plugin {
     for (const key of ['transcriptionBaseUrl', 'cleanupBaseUrl'] as const) {
       try { settings[key] = normalizeBaseUrl(settings[key]); } catch { settings[key] = DEFAULTS[key]; }
     }
+    if (settings.titleFilenameMode !== 'replace') settings.titleFilenameMode = 'append';
     return settings;
   }
   private cacheProgress(job: Job) { this.progressJobs.set(job.id, { id: job.id, state: job.state, targetPath: job.targetPath, createdAt: job.createdAt }); }
@@ -198,13 +200,18 @@ export default class VoiceAppend extends Plugin {
   }
   private async append(job: Job) {
     if (this.disposed) throw new Error(t('Plugin wurde beendet. Bitte erneut versuchen.'));
-    const file = this.targetFiles.get(job.id) ?? this.app.vault.getAbstractFileByPath(job.targetPath);
+    let file = this.targetFiles.get(job.id) ?? this.app.vault.getAbstractFileByPath(job.targetPath);
+    if (!(file instanceof TFile) && job.titleRenamePlan) file = this.app.vault.getAbstractFileByPath(job.titleRenamePlan.targetPath);
     if (!(file instanceof TFile) || file.extension !== 'md' || this.app.vault.getAbstractFileByPath(file.path) !== file) throw new Error(t('Zielnotiz nicht gefunden. Bitte öffnen und die Aufnahme über den Status neu zuordnen.'));
+    this.targetFiles.set(job.id, file);
     if (job.targetCreatedAt !== undefined && job.targetCreatedAt !== file.stat.ctime) throw new Error(t('Die Zieldatei wurde möglicherweise ersetzt. Bitte die gewünschte Notiz öffnen und die Aufnahme neu zuordnen.'));
     const openEditor = () => this.app.workspace.getLeavesOfType('markdown').map(leaf => leaf.view).find((view): view is MarkdownView => view instanceof MarkdownView && view.file === file && view.getMode() === 'source')?.editor;
     const initial = openEditor()?.getValue() ?? await this.app.vault.read(file);
     const recovering = !!job.appendPlan;
-    if (!job.appendPlan) { job.appendPlan = await createAppendPlan(initial, job); await this.saveJob(job); }
+    if (!job.appendPlan) {
+      job.titleRenameEligible = !!job.options.generateTitle && !!job.requestTitle && !!job.generatedTitle && mainContentIsEmpty(initial);
+      job.appendPlan = await createAppendPlan(initial, job); await this.saveJob(job);
+    }
     for (let attempt = 0; attempt < 4; attempt++) {
       if (this.disposed) throw new Error(t('Plugin wurde beendet. Bitte erneut versuchen.'));
       const editor = openEditor();
@@ -212,6 +219,8 @@ export default class VoiceAppend extends Plugin {
       const state = await inspectAppend(before, job.appendPlan);
       if (state === 'conflict' && !recovering) {
         // No write has happened in this invocation yet; incorporate intervening manual edits.
+        job.titleRenameEligible = !!job.options.generateTitle && !!job.requestTitle && !!job.generatedTitle && mainContentIsEmpty(before);
+        delete job.titleRenamePlan; delete job.titleRenameDone;
         job.appendPlan = await createAppendPlan(before, job); await this.saveJob(job); continue;
       }
       const after = await applyAppendPlan(before, job.appendPlan);
@@ -219,7 +228,7 @@ export default class VoiceAppend extends Plugin {
         if (editor !== openEditor() || editor.getValue() !== before) continue;
         if (after !== before) editor.replaceRange(after.slice(before.length), editor.offsetToPos(before.length));
         for (let check = 0; check < 50; check++) {
-          if (await inspectAppend(await this.app.vault.read(file), job.appendPlan) === 'applied') return;
+          if (await inspectAppend(await this.app.vault.read(file), job.appendPlan) === 'applied') { await this.finishTitleRename(job, file); return; }
           await new Promise(resolve => window.setTimeout(resolve, 100));
         }
         throw new Error(t('Text ist im Editor eingefügt, Speicherung noch nicht bestätigt. Erneut versuchen fügt ihn nicht doppelt ein.'));
@@ -229,9 +238,52 @@ export default class VoiceAppend extends Plugin {
         if (current !== before) { changed = true; return current; }
         return after;
       });
-      if (!changed) return;
+      if (!changed) { await this.finishTitleRename(job, file); return; }
     }
     throw new Error(t('Die Notiz wird gerade geändert. Bitte die Ergänzung erneut versuchen.'));
+  }
+  private async finishTitleRename(job: Job, file: TFile) {
+    if (!job.titleRenameEligible || job.titleRenameDone) return;
+    if (!job.titleRenamePlan) {
+      const candidate = titledBasename(file.basename, job.generatedTitle, job.options.titleFilenameMode ?? 'append');
+      if (!candidate || candidate === file.basename) { job.titleRenameDone = true; await this.saveJob(job); return; }
+      const siblings: string[] = [];
+      for (const child of file.parent?.children ?? []) if (child instanceof TFile && child.extension === 'md') siblings.push(String(child.basename));
+      const basename = availableBasename(candidate, siblings, file.basename);
+      if (!basename) throw new Error(t('Für den erzeugten Titel konnte kein freier Dateiname gefunden werden.'));
+      const folder = file.parent?.path;
+      job.titleRenamePlan = {
+        sourcePath: file.path,
+        targetPath: normalizePath(`${folder && folder !== '/' ? `${folder}/` : ''}${basename}.md`),
+        sourceCreatedAt: file.stat.ctime,
+      };
+      await this.saveJob(job);
+    }
+    const plan = job.titleRenamePlan;
+    if (file.path === plan.targetPath) {
+      job.targetPath = file.path; job.targetCreatedAt = file.stat.ctime; job.titleRenameDone = true;
+      this.targetFiles.set(job.id, file); await this.saveJob(job); return;
+    }
+    if (file.path !== plan.sourcePath) {
+      // Respect a manual rename that happened after the append was planned.
+      job.targetPath = file.path; job.targetCreatedAt = file.stat.ctime; job.titleRenameDone = true; delete job.titleRenamePlan;
+      await this.saveJob(job); return;
+    }
+    let targetPath = plan.targetPath;
+    const existing = this.app.vault.getAbstractFileByPath(targetPath);
+    if (existing && existing !== file) {
+      const siblings: string[] = [];
+      for (const child of file.parent?.children ?? []) if (child instanceof TFile && child.extension === 'md') siblings.push(String(child.basename));
+      const candidate = titledBasename(file.basename, job.generatedTitle, job.options.titleFilenameMode ?? 'append');
+      const basename = availableBasename(candidate, siblings, file.basename);
+      if (!basename) throw new Error(t('Für den erzeugten Titel konnte kein freier Dateiname gefunden werden.'));
+      const folder = file.parent?.path;
+      targetPath = normalizePath(`${folder && folder !== '/' ? `${folder}/` : ''}${basename}.md`);
+      job.titleRenamePlan.targetPath = targetPath; await this.saveJob(job);
+    }
+    await this.app.fileManager.renameFile(file, targetPath);
+    job.targetPath = file.path; job.targetCreatedAt = file.stat.ctime; job.titleRenameDone = true;
+    this.targetFiles.set(job.id, file); await this.saveJob(job);
   }
   private async initializeNotes() {
     if (!this.settings.legacyCommentsRemoved) {
@@ -256,7 +308,9 @@ export default class VoiceAppend extends Plugin {
     if (this.running) { new Notice(t('Bitte die laufende Verarbeitung abwarten.')); return; }
     const file = this.app.workspace.getActiveFile();
     if (!file || file.extension !== 'md') { new Notice(t('Bitte zuerst die gewünschte Zielnotiz öffnen.')); return; }
-    if (job.targetPath !== file.path) delete job.appendPlan;
+    if (job.targetPath !== file.path) {
+      delete job.appendPlan; delete job.titleRenameEligible; delete job.titleRenamePlan; delete job.titleRenameDone;
+    }
     job.targetPath = file.path; job.targetCreatedAt = file.stat.ctime; this.targetFiles.set(job.id, file); await this.saveJob(job); this.notify(); await this.runQueue(job.id);
   }
   removeRecording(job: Job) {
@@ -314,7 +368,12 @@ class VoiceSettings extends PluginSettingTab {
     new Setting(el).setName(t('Bereinigungs-Prompt')).setDesc(t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.')).addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); });
     new Setting(el).setName(t('Standard-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Titel für leere Notizen erzeugen')).setDesc(t('Erzeugt beim Bereinigen eine H1-Überschrift, wenn die Notiz außer Frontmatter noch keinen Inhalt hat. Der Dateiname bleibt unverändert.')).addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Titel für leere Notizen erzeugen')).setDesc(t('Erzeugt beim Bereinigen einen Titel und benennt die Notiz um, wenn sie außer Frontmatter noch keinen Inhalt hat.')).addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Verhalten des Dateinamens')).setDesc(t('Anhängen behält bestehende Namen wie Zeitstempel von Unique Notes bei. Ersetzen verwendet nur den erzeugten Titel.')).addDropdown(dropdown => dropdown
+      .addOption('append', t('An bestehenden Dateinamen anhängen'))
+      .addOption('replace', t('Bestehenden Dateinamen ersetzen'))
+      .setValue(this.plugin.settings.titleFilenameMode ?? 'append')
+      .onChange(async value => { this.plugin.settings.titleFilenameMode = value === 'replace' ? 'replace' : 'append'; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Originaltranskript anhängen')).setDesc(t('Standardmäßig aus. Bei Aktivierung als eingeklappter Abschnitt unter der Ergänzung.')).addToggle(toggle => toggle.setValue(this.plugin.settings.keepTranscript).onChange(async value => { this.plugin.settings.keepTranscript = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Datierte Überschrift')).addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Notizkontext beim Bereinigen verwenden')).setDesc(t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an OpenAI. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.')).addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); }));

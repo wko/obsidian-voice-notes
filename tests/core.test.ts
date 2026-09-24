@@ -14,9 +14,9 @@ test('supports empty notes and no transcript or heading', () => {
   const j = job(); j.cleaned = 'Neuer Gedanke'; j.options.keepTranscript = false;
   assert.equal(appendText('', j), 'Neuer Gedanke\n');
 });
-test('adds a generated H1 only when the main note body is still empty', () => {
+test('keeps generated titles out of note content', () => {
   const j = job(); j.options.keepTranscript = false; j.options.generateTitle = true; j.requestTitle = true; j.cleaned = 'A useful thought.'; j.generatedTitle = '# Useful thought\n';
-  assert.equal(appendText('---\ntags: [inbox]\n---\n', j), '---\ntags: [inbox]\n---\n\n# Useful thought\n\nA useful thought.\n');
+  assert.equal(appendText('---\ntags: [inbox]\n---\n', j), '---\ntags: [inbox]\n---\n\nA useful thought.\n');
   assert.equal(appendText('Existing body', j), 'Existing body\n\nA useful thought.\n');
 });
 test('resumes after cleanup failure without transcribing twice', async () => {

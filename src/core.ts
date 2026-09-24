@@ -1,13 +1,15 @@
 import { t } from './i18n';
 import { getLocale } from './i18n';
-import { mainContentIsEmpty, type CleanupContext } from './context';
+import type { CleanupContext } from './context';
 import type { AppendPlan } from './append-journal';
+import type { TitleFilenameMode } from './title';
 export const DEFAULT_PROMPT = `Carefully clean up my dictated addition. Remove filler words, repetitions, and abandoned sentence fragments. Correct obvious slips of the tongue. Organize the result into readable Markdown paragraphs and add short headings only when useful. Preserve the original language, tone, meaning, claims, uncertainty, examples, and level of detail. Do not infer new meaning, remove substance, or add information or advice. Return only the cleaned addition.`;
 /**
  * Processing settings are copied into each job.  The endpoint fields are
  * optional only to keep jobs saved by older plugin versions resumable.
  */
-export interface Options { transcriptionModel: string; cleanupModel: string; transcriptionBaseUrl?: string; cleanupBaseUrl?: string; prompt: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; }
+export interface Options { transcriptionModel: string; cleanupModel: string; transcriptionBaseUrl?: string; cleanupBaseUrl?: string; prompt: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; titleFilenameMode?: TitleFilenameMode; }
+export interface TitleRenamePlan { sourcePath: string; targetPath: string; sourceCreatedAt?: number; }
 export interface Job {
   id: string; targetPath: string; targetCreatedAt?: number; createdAt: number;
   audio: Blob | null; mime: string; duration: number; options: Options;
@@ -16,13 +18,12 @@ export interface Job {
   raw?: string; cleaned?: string; generatedTitle?: string; requestTitle?: boolean; completedAt?: number; error?: string;
   noteContext?: string;
   appendPlan?: AppendPlan;
+  titleRenameEligible?: boolean; titleRenamePlan?: TitleRenamePlan; titleRenameDone?: boolean;
 }
 export function appendText(current: string, job: Job): string {
   if (!job.cleaned?.trim()) throw new Error(t('Die Bereinigung enthält keinen Text.'));
   const body = job.cleaned.trim().replace(/<!--\s*voice-append[^>]*-->/g, '');
   const lines: string[] = [];
-  const title = job.generatedTitle?.replace(/<!--[^]*?-->/g, '').replace(/^\s*#+\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 160);
-  if (job.options.generateTitle && job.requestTitle && title && mainContentIsEmpty(current)) lines.push(`# ${title}`, '');
   if (job.options.datedHeading) lines.push(`## ${t('Ergänzung')} – ${new Intl.DateTimeFormat(getLocale(), { dateStyle: 'short', timeStyle: 'short' }).format(job.createdAt)}`, '');
   lines.push(body);
   if (job.options.keepTranscript && job.raw) lines.push('', `> [!note]- ${t('Originaltranskript')}`, ...job.raw.replace(/\r\n?/g, '\n').split('\n').map(line => `> ${line}`));
