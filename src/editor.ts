@@ -5,10 +5,10 @@ import { editorInfoField, setIcon } from 'obsidian';
 import type { TFile } from 'obsidian';
 export type BindProgress = (el: HTMLElement, file: () => TFile | null | undefined) => () => void;
 export function voiceButton(doc: Document, start: () => void): HTMLElement {
-  const wrap = doc.createElement('div'); wrap.className = 'voice-append-footer';
-  const content = doc.createElement('div'); content.className = 'voice-append-footer-content';
-  const button = doc.createElement('button'); button.className = 'voice-append-button'; button.type = 'button';
-  const icon = doc.createElement('span'); setIcon(icon, 'mic'); button.append(icon, doc.createTextNode(t('Gedanken ergänzen')));
+  const wrap = doc.win.createDiv({ cls: 'voice-append-footer' });
+  const content = doc.win.createDiv({ cls: 'voice-append-footer-content' });
+  const button = doc.win.createEl('button', { cls: 'voice-append-button' }); button.type = 'button';
+  const icon = doc.win.createSpan(); setIcon(icon, 'mic'); button.append(icon, doc.createTextNode(t('Gedanken ergänzen')));
   button.onclick = start; content.append(button); wrap.append(content); return wrap;
 }
 export function footerExtension(start: (file: TFile) => void, bindProgress: BindProgress) {

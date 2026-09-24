@@ -90,13 +90,13 @@ export default class VoiceAppend extends Plugin {
   private async saveJob(job: Job) { await this.store.save(job); this.cacheProgress(job); this.notify(); }
   private bindProgress(el: HTMLElement, file: () => TFile | null | undefined): () => void {
     const content = el.querySelector<HTMLElement>('.voice-append-footer-content') ?? el;
-    const row = el.ownerDocument.createElement('div'); row.className = 'voice-append-progress';
+    const row = el.ownerDocument.win.createDiv({ cls: 'voice-append-progress' });
     row.setAttribute('role', 'status'); row.setAttribute('aria-live', 'polite'); row.setAttribute('aria-atomic', 'true');
-    const icon = el.ownerDocument.createElement('span'); icon.setAttribute('aria-hidden', 'true');
-    const text = el.ownerDocument.createElement('span');
-    const details = el.ownerDocument.createElement('button'); details.className = 'voice-append-progress-details';
+    const icon = el.ownerDocument.win.createSpan(); icon.setAttribute('aria-hidden', 'true');
+    const text = el.ownerDocument.win.createSpan();
+    const details = el.ownerDocument.win.createEl('button', { cls: 'voice-append-progress-details' });
     details.type = 'button'; details.title = t('Status anzeigen'); details.onclick = () => this.openOutbox();
-    const chevron = el.ownerDocument.createElement('span'); chevron.className = 'voice-append-progress-chevron'; chevron.setAttribute('aria-hidden', 'true'); setIcon(chevron, 'chevron-right');
+    const chevron = el.ownerDocument.win.createSpan({ cls: 'voice-append-progress-chevron' }); chevron.setAttribute('aria-hidden', 'true'); setIcon(chevron, 'chevron-right');
     details.append(icon, text, chevron); row.append(details); content.prepend(row);
     let previous = '';
     const render = () => {
