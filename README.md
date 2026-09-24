@@ -2,6 +2,10 @@
 
 Voice Append records a thought, transcribes it through a configurable transcription provider, cleans it up with an LLM provider, and appends the result to the active Obsidian note. It is designed for quick capture on iPhone and also works on desktop.
 
+<p align="center">
+  <img src="docs/assets/voice-append-demo.gif" width="360" alt="Voice Append recording, transcribing, cleaning up, and appending three thoughts to an Obsidian note">
+</p>
+
 ## Features
 
 - Record from the end of a note, the command palette, the ribbon, or Obsidian's mobile toolbar.
@@ -24,7 +28,7 @@ The defaults use `https://api.openai.com/v1`, `gpt-transcribe` for transcription
 
 ## Installation
 
-Voice Append is not yet listed in Obsidian's Community Plugins directory.
+Until Voice Append is listed in Obsidian's Community Plugins directory, install it manually from a GitHub release or build it from source.
 
 For a manual installation, run `npm ci && npm run release`, then copy these files from `dist/` into `<vault>/.obsidian/plugins/voice-append/`:
 
