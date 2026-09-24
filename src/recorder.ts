@@ -101,7 +101,7 @@ export class RecorderModal extends Modal {
       const oversized = this.audio.size > LIMIT_BYTES;
       await this.accept({ id: this.id, targetPath: this.file.path, targetCreatedAt: this.file.stat.ctime, createdAt: this.startedAt, audio: this.audio, mime: this.audio.type, duration: this.duration, options: this.options, state: oversized ? 'failed' : 'queued', ...(oversized ? { error: t('Aufnahme zu groß. Bitte Audio exportieren und kürzere Aufnahme erstellen.') } : {}) });
       this.saved = true; this.saving = false; this.finishing = false;
-      new Notice(oversized ? t('Aufnahme lokal gespeichert, aber zu groß für den Upload.') : t('Aufnahme gespeichert. Verarbeitung startet bei Verbindung.'));
+      if (oversized) new Notice(t('Aufnahme lokal gespeichert, aber zu groß für den Upload.'));
       this.close();
     } catch {
       this.finishing = false;

@@ -8,6 +8,6 @@ test('button and UI use Obsidian language with English fallback', () => {
   setLanguage('de');
 });
 test('localized messages interpolate user filenames literally', () => {
-  setLanguage('en'); assert.equal(t('Gedanken an „{path}“ angehängt.', { path: 'Notes/$&' }), 'Appended to “Notes/$&”.');
+  setLanguage('en'); assert.equal(t('Provider-Anfrage fehlgeschlagen ({status}). Bitte Modell und Verbindung prüfen.', { status: '$&' }), 'Provider request failed ($&). Check the model and connection.');
   setLanguage('de');
 });

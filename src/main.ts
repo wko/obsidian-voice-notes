@@ -189,7 +189,6 @@ export default class VoiceAppend extends Plugin {
             const file = this.targetFiles.get(current.id); if (file) current.targetPath = file.path;
             await this.saveJob(current); this.notify();
           }, append: current => this.append(current) });
-          new Notice(t('Gedanken an „{path}“ angehängt.', { path: job.targetPath.replace(/\.md$/, '') }));
         } catch (error) {
           if (job.state !== 'failed') { job.state = 'failed'; job.error = error instanceof Error ? error.message : t('Verarbeitung fehlgeschlagen.'); await this.saveJob(job); }
           new Notice(t('Voice Append: Aufnahme bleibt gespeichert. Details unter „Aufnahmen und Status“.'));
