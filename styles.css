@@ -1,13 +1,16 @@
-.voice-append-footer { width: 100%; box-sizing: border-box; padding: 20px 0 32px; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 12px; clear: both; }
-.voice-append-progress { justify-self: stretch; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-muted); font-size: var(--font-small); }
+.voice-append-footer { width: 100%; box-sizing: border-box; padding: 20px 0 32px; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; clear: both; }
+.voice-append-footer-content { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.voice-append-progress { display: flex; justify-content: center; color: var(--text-muted); font-size: var(--font-small); }
 .voice-append-progress[hidden] { display: none; }
 .voice-append-hide-inline-button .voice-append-button { display: none; }
 .voice-append-hide-inline-button .voice-append-footer:not(.has-progress) { display: none; }
 .voice-append-progress.is-error { color: var(--text-error); }
-.voice-append-spinner, .voice-append-status-icon { display: inline-flex; width: 18px; height: 18px; }
+.voice-append-spinner, .voice-append-status-icon, .voice-append-progress-chevron { display: inline-flex; width: 18px; height: 18px; flex: 0 0 18px; }
 .voice-append-spinner { color: var(--text-accent); animation: voice-append-spin 1s linear infinite; }
-.voice-append-spinner svg, .voice-append-status-icon svg { width: 18px; height: 18px; }
-.voice-append-progress-details { box-shadow: none; background: transparent; color: var(--text-accent); padding: 4px 6px; height: auto; }
+.voice-append-spinner svg, .voice-append-status-icon svg, .voice-append-progress-chevron svg { width: 18px; height: 18px; }
+.voice-append-progress-details { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 190px; min-height: 44px; box-shadow: none; background: transparent; color: var(--text-muted); padding: 9px 12px; border: 0; border-radius: var(--radius-m); }
+.voice-append-progress-details:hover { color: var(--text-accent); background: var(--background-modifier-hover); }
+.voice-append-progress-chevron { color: var(--text-faint); }
 @keyframes voice-append-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .voice-append-spinner { animation: none; } }
 .voice-append-button { justify-self: center; display: inline-flex; align-items: center; gap: 9px; min-height: 44px; padding: 10px 16px; color: var(--text-muted); background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 22px; box-shadow: none; cursor: pointer; }
@@ -25,4 +28,6 @@
 .voice-append-job a { display: block; }
 .voice-append-error { color: var(--text-error); }
 .is-mobile .voice-append-button { min-height: 48px; }
+.is-mobile .voice-append-footer-content { gap: 16px; }
+.is-mobile .voice-append-progress-details { min-height: 48px; padding: 11px 14px; }
 .is-mobile .voice-append-controls button { width: 100%; }

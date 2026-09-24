@@ -96,13 +96,15 @@ export default class VoiceAppend extends Plugin {
   private cacheProgress(job: Pick<Job, 'id' | 'state' | 'targetPath' | 'createdAt'>) { this.progressJobs.set(job.id, { id: job.id, state: job.state, targetPath: job.targetPath, createdAt: job.createdAt }); }
   private async saveJob(job: Job) { await this.store.save(job); this.cacheProgress(job); this.notify(); }
   private bindProgress(el: HTMLElement, file: () => TFile | null | undefined): () => void {
+    const content = el.querySelector<HTMLElement>('.voice-append-footer-content') ?? el;
     const row = el.ownerDocument.createElement('div'); row.className = 'voice-append-progress';
     row.setAttribute('role', 'status'); row.setAttribute('aria-live', 'polite'); row.setAttribute('aria-atomic', 'true');
     const icon = el.ownerDocument.createElement('span'); icon.setAttribute('aria-hidden', 'true');
     const text = el.ownerDocument.createElement('span');
     const details = el.ownerDocument.createElement('button'); details.className = 'voice-append-progress-details';
-    details.type = 'button'; details.textContent = t('Status anzeigen'); details.onclick = () => this.openOutbox();
-    row.append(icon, text, details); el.prepend(row);
+    details.type = 'button'; details.title = t('Status anzeigen'); details.onclick = () => this.openOutbox();
+    const chevron = el.ownerDocument.createElement('span'); chevron.className = 'voice-append-progress-chevron'; chevron.setAttribute('aria-hidden', 'true'); setIcon(chevron, 'chevron-right');
+    details.append(icon, text, chevron); row.append(details); content.prepend(row);
     let previous = '';
     const render = () => {
       const target = file(); const state = target ? noteProgress(this.progressJobs.values(), target.path) : null;
@@ -112,7 +114,7 @@ export default class VoiceAppend extends Plugin {
       if (!state) return;
       icon.className = state.spinning ? 'voice-append-spinner' : 'voice-append-status-icon';
       setIcon(icon, state.spinning ? 'loader-circle' : state.failed ? 'circle-alert' : 'clock');
-      text.textContent = t(state.label); row.classList.toggle('is-error', state.failed);
+      text.textContent = t(state.label); details.setAttribute('aria-label', `${t(state.label)}. ${t('Status anzeigen')}`); row.classList.toggle('is-error', state.failed);
     };
     const unsubscribe = this.subscribe(render); render();
     return () => { unsubscribe(); row.remove(); };

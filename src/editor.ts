@@ -6,9 +6,10 @@ import type { TFile } from 'obsidian';
 export type BindProgress = (el: HTMLElement, file: () => TFile | null | undefined) => () => void;
 export function voiceButton(doc: Document, start: () => void): HTMLElement {
   const wrap = doc.createElement('div'); wrap.className = 'voice-append-footer';
+  const content = doc.createElement('div'); content.className = 'voice-append-footer-content';
   const button = doc.createElement('button'); button.className = 'voice-append-button'; button.type = 'button';
   const icon = doc.createElement('span'); setIcon(icon, 'mic'); button.append(icon, doc.createTextNode(t('Gedanken ergänzen')));
-  button.onclick = start; wrap.append(button); return wrap;
+  button.onclick = start; content.append(button); wrap.append(content); return wrap;
 }
 export function footerExtension(start: (file: TFile) => void, bindProgress: BindProgress) {
   const disposers = new WeakMap<HTMLElement, () => void>();
@@ -17,18 +18,18 @@ export function footerExtension(start: (file: TFile) => void, bindProgress: Bind
     toDOM(view: EditorView) {
       const getFile = () => view.state.field(editorInfoField, false)?.file;
       const el = voiceButton(view.dom.ownerDocument, () => { const file = getFile(); if (file) start(file); });
-      const button = el.querySelector<HTMLElement>('.voice-append-button')!;
+      const content = el.querySelector<HTMLElement>('.voice-append-footer-content')!;
       let frame = 0;
       const center = () => {
         window.cancelAnimationFrame(frame);
         frame = window.requestAnimationFrame(() => {
-          button.setCssProps({ transform: '' });
+          content.setCssProps({ transform: '' });
           const viewport = view.scrollDOM.getBoundingClientRect();
-          const rect = button.getBoundingClientRect();
-          if (rect.width) button.setCssProps({ transform: `translateX(${viewport.left + viewport.width / 2 - rect.left - rect.width / 2}px)` });
+          const rect = content.getBoundingClientRect();
+          if (rect.width) content.setCssProps({ transform: `translateX(${viewport.left + viewport.width / 2 - rect.left - rect.width / 2}px)` });
         });
       };
-      const observer = new ResizeObserver(center); observer.observe(view.scrollDOM); center();
+      const observer = new ResizeObserver(center); observer.observe(view.scrollDOM); observer.observe(content); center();
       const disposeProgress = bindProgress(el, getFile);
       disposers.set(el, () => { observer.disconnect(); window.cancelAnimationFrame(frame); disposeProgress(); }); return el;
     }
