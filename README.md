@@ -56,6 +56,12 @@ Open **Recordings and status** from the plugin settings or command palette to re
 
 Each job keeps a snapshot of its processing settings, so changing settings does not alter recordings that are already queued.
 
+### OpenRouter example
+
+OpenRouter can handle both steps with the plugin's single API key. Set both provider base URLs to `https://openrouter.ai/api/v1`, use an OpenRouter key, and select OpenRouter model slugs. For transcription, `openai/whisper-1` is one documented option. For cleanup, choose a model and route that support both the Responses API and structured outputs. Availability and model support can change; see OpenRouter's [Responses API](https://openrouter.ai/docs/api/api-reference/responses/create-responses), [structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), and [transcription guide](https://openrouter.ai/blog/tutorials/transcription-on-openrouter/).
+
+The single saved key is sent to both configured provider base URLs. Using two providers that require different keys is therefore not supported by the current settings.
+
 ## Privacy and data handling
 
 Voice Append sends new audio to the configured transcription provider and its transcript to the configured LLM provider. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.

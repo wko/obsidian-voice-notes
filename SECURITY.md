@@ -8,4 +8,4 @@ Include the affected version, platform, reproduction steps, impact, and any sugg
 
 ## Scope
 
-Voice Append handles microphone input, an OpenAI API key, local recordings, transcripts, optional note context, and writes to the active Obsidian vault. Reports involving unintended disclosure, unauthorized network requests, unsafe note modification, or loss of recoverable recordings are especially helpful.
+Voice Append handles microphone input, an LLM provider API key, local recordings, transcripts, optional note context, and writes to the active Obsidian vault. Reports involving unintended disclosure, unauthorized network requests, unsafe note modification, or loss of recoverable recordings are especially helpful.

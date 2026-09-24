@@ -346,10 +346,10 @@ class VoiceSettings extends PluginSettingTab {
     const el = this.containerEl; el.empty();
     el.createEl('p', { text: t('Neue Aufnahmen werden direkt an die konfigurierten Transkriptions- und LLM-Provider übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
     let keyValue = this.plugin.apiKey.get();
-    new Setting(el).setName(t('Provider-API-Schlüssel')).setDesc(t('Ein API-Schlüssel für Transkriptions- und LLM-Provider. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt den Schlüssel nicht.'))
+    new Setting(el).setName(t('LLM-Provider-API-Schlüssel')).setDesc(t('Dieser eine Schlüssel wird für Anfragen an den Transkriptions- und den LLM-Provider verwendet. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt ihn nicht.'))
       .addText(text => {
         text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
-        text.setPlaceholder(t('Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
+        text.setPlaceholder(t('LLM-Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
       })
       .addButton(button => button.setButtonText(t('Speichern')).onClick(async () => {
         try {
@@ -392,10 +392,11 @@ class VoiceSettings extends PluginSettingTab {
       text.setValue(this.plugin.settings.vocabulary ?? '').onChange(async value => { this.plugin.settings.vocabulary = value.slice(0, MAX_VOCABULARY_CHARS); await this.plugin.saveSettings(); });
     });
     new Setting(el).setName(t('Gespeicherte Aufnahmen')).setDesc(t('Lokal auf diesem Gerät. Erfolgreiche Audiodateien bleiben sieben Tage erhalten. Offene Aufnahmen werden nicht automatisch gelöscht.')).addButton(button => button.setButtonText(t('Aufnahmen und Status')).onClick(() => this.plugin.openOutbox()));
-    new Setting(el).setName(t('Feedback und Support')).setDesc(t('Melde Fehler oder schlage Funktionen über GitHub Issues vor. Entferne vorher API-Schlüssel und private Notizinhalte aus deinem Bericht.'))
-      .addButton(button => button.setButtonText(t('Fehler melden')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=bug_report.yml', '_blank')))
-      .addButton(button => button.setButtonText(t('Funktion vorschlagen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=feature_request.yml', '_blank')))
-      .addButton(button => button.setButtonText(t('Repository öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes', '_blank')));
+    new Setting(el).setName(t('Über Voice Append')).setDesc(t('Entwickler, Dokumentation und direkte Wege für Feedback.')).setHeading();
+    new Setting(el).setName(t('Erstellt von Walter Forkel')).setDesc(t('Öffnet das GitHub-Profil des Entwicklers.')).addButton(button => button.setButtonText(t('Profil öffnen')).onClick(() => window.open('https://github.com/wko', '_blank')));
+    new Setting(el).setName(t('Repository und Dokumentation')).setDesc(t('Quellcode, Dokumentation und aktuelle Entwicklung auf GitHub.')).addButton(button => button.setButtonText(t('Repository öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes', '_blank')));
+    new Setting(el).setName(t('Fehler melden')).setDesc(t('Erstellt einen strukturierten Bugreport. Entferne vorher API-Schlüssel und private Notizinhalte.')).addButton(button => button.setButtonText(t('Bugreport öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=bug_report.yml', '_blank')));
+    new Setting(el).setName(t('Funktion vorschlagen')).setDesc(t('Beschreibe deinen Anwendungsfall und die gewünschte Verbesserung.')).addButton(button => button.setButtonText(t('Feature-Anfrage öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=feature_request.yml', '_blank')));
     el.createEl('p', { text: t('Erste Entwicklungsversion: Aufnahmen bei geöffneter App. Displaysperre oder ein vom System beendeter Prozess können die laufende, noch nicht gespeicherte Aufnahme unterbrechen.'), cls: 'voice-append-hint' });
   }
 }

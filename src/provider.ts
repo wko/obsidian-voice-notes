@@ -46,7 +46,7 @@ export class OpenAIProvider implements Transcriber, Cleaner {
 
   private async request(baseUrl: string | undefined, path: string, body: string | ArrayBuffer, contentType: string): Promise<unknown> {
     const key = this.key();
-    if (!key) throw new Error(t('Bitte in den Voice-Append-Einstellungen einen Provider-API-Schlüssel eingeben.'));
+    if (!key) throw new Error(t('Bitte in den Voice-Append-Einstellungen einen LLM-Provider-API-Schlüssel eingeben.'));
     const url = `${normalizeBaseUrl(baseUrl)}/${path}`;
     let response: HttpResponse;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -60,7 +60,7 @@ export class OpenAIProvider implements Transcriber, Cleaner {
     } finally {
       if (timer) clearTimeout(timer);
     }
-    if (response.status === 401) throw new Error(t('Provider-API-Schlüssel ungültig. Bitte Einstellungen prüfen.'));
+    if (response.status === 401) throw new Error(t('LLM-Provider-API-Schlüssel ungültig. Bitte Einstellungen prüfen.'));
     if (response.status === 429) throw new Error(t('Provider-Limit erreicht. Bitte später erneut versuchen oder Guthaben prüfen.'));
     if (response.status < 200 || response.status >= 300) throw new Error(t('Provider-Anfrage fehlgeschlagen ({status}). Bitte Modell und Verbindung prüfen.', { status: response.status }));
     return response.json;
