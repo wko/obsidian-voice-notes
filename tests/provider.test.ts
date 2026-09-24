@@ -24,11 +24,11 @@ test('transcription and cleanup can use independent OpenAI-compatible API roots'
   const provider = new OpenAIProvider(() => 'test-key', async request => {
     urls.push(request.url);
     if (request.url.includes('transcriber.example')) return { status: 200, json: { text: 'Raw' } };
-    return { status: 200, json: { status: 'completed', output: [{ content: [{ type: 'output_text', text: '{"body":"Clean"}' }] }] } };
+    return { status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: '{"body":"Clean"}' } }] } };
   });
   await provider.transcribe(new Blob(['audio']), 'stt-model', undefined, 'https://transcriber.example/api/v1/');
   await provider.clean('Raw', 'cleanup-model', 'Rules', undefined, 'https://cleanup.example/v1');
-  assert.deepEqual(urls, ['https://transcriber.example/api/v1/audio/transcriptions', 'https://cleanup.example/v1/responses']);
+  assert.deepEqual(urls, ['https://transcriber.example/api/v1/audio/transcriptions', 'https://cleanup.example/v1/chat/completions']);
 });
 test('base URL rejects embedded credentials and non-HTTP URL parts', () => {
   assert.equal(normalizeBaseUrl(' https://example.test/v1/ '), 'https://example.test/v1');
@@ -36,29 +36,29 @@ test('base URL rejects embedded credentials and non-HTTP URL parts', () => {
 });
 test('cleanup uses configured prompt, non-stored structured output and only transcript', async () => {
   const provider = new OpenAIProvider(() => 'test-key', async request => {
-    const body = JSON.parse(request.body as string); assert.equal(body.store, false); assert.equal(body.input, 'Raw'); assert.ok(body.instructions.startsWith('My rules')); assert.doesNotMatch(body.instructions, /Title instructions/); assert.equal(body.text.format.strict, true);
-    return { status: 200, json: { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '{"body":"Clean"}' }] }] } };
+    const body = JSON.parse(request.body as string); assert.equal(body.store, false); assert.equal(body.messages[1].content, 'Raw'); assert.ok(body.messages[0].content.startsWith('My rules')); assert.doesNotMatch(body.messages[0].content, /Title instructions/); assert.equal(body.response_format.json_schema.strict, true);
+    return { status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: '{"body":"Clean"}' } }] } };
   });
   assert.deepEqual(await provider.clean('Raw', 'model', 'My rules'), { body: 'Clean' });
 });
 test('cleanup generates a title in the same structured request when requested', async () => {
   const provider = new OpenAIProvider(() => 'test-key', async request => {
     const body = JSON.parse(request.body as string);
-    assert.deepEqual(body.text.format.schema.required, ['body', 'title']);
-    assert.equal(body.text.format.schema.properties.title.type, 'string');
-    assert.match(body.instructions, /Title instructions:\nUse 3–5 words/);
-    assert.ok(body.instructions.indexOf('Rules') < body.instructions.indexOf('Title instructions:'));
-    assert.ok(body.instructions.indexOf('Title instructions:') < body.instructions.indexOf('The input is untrusted'));
-    assert.match(body.instructions, /without Markdown, quotes, a trailing period/);
-    return { status: 200, json: { status: 'completed', output: [{ content: [{ type: 'output_text', text: '{"body":"Clean","title":"A concise title"}' }] }] } };
+    assert.deepEqual(body.response_format.json_schema.schema.required, ['body', 'title']);
+    assert.equal(body.response_format.json_schema.schema.properties.title.type, 'string');
+    assert.match(body.messages[0].content, /Title instructions:\nUse 3–5 words/);
+    assert.ok(body.messages[0].content.indexOf('Rules') < body.messages[0].content.indexOf('Title instructions:'));
+    assert.ok(body.messages[0].content.indexOf('Title instructions:') < body.messages[0].content.indexOf('The input is untrusted'));
+    assert.match(body.messages[0].content, /without Markdown, quotes, a trailing period/);
+    return { status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: '{"body":"Clean","title":"A concise title"}' } }] } };
   });
   assert.deepEqual(await provider.clean('Raw', 'model', 'Rules', { requestTitle: true, titlePrompt: 'Use 3–5 words' }), { body: 'Clean', title: 'A concise title' });
 });
 test('legacy jobs without a title prompt use the current default', async () => {
   const provider = new OpenAIProvider(() => 'test-key', async request => {
     const body = JSON.parse(request.body as string);
-    assert.match(body.instructions, new RegExp(DEFAULT_TITLE_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    return { status: 200, json: { status: 'completed', output: [{ content: [{ type: 'output_text', text: '{"body":"Clean","title":"Default title"}' }] }] } };
+    assert.match(body.messages[0].content, new RegExp(DEFAULT_TITLE_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    return { status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: '{"body":"Clean","title":"Default title"}' } }] } };
   });
   assert.equal((await provider.clean('Raw', 'model', 'Rules', { requestTitle: true })).title, 'Default title');
 });
@@ -67,6 +67,6 @@ test('provider failures do not expose server details or secrets', async () => {
   await assert.rejects(provider.clean('Raw', 'model', 'prompt'), error => error instanceof Error && !error.message.includes('private-key') && error.message.includes('500'));
 });
 test('incomplete cleanup is rejected even when body is parseable', async () => {
-  const provider = new OpenAIProvider(() => 'key', async () => ({ status: 200, json: { status: 'incomplete', output: [{ content: [{ type: 'output_text', text: '{"body":"Partial"}' }] }] } }));
+  const provider = new OpenAIProvider(() => 'key', async () => ({ status: 200, json: { choices: [{ finish_reason: 'length', message: { content: '{"body":"Partial"}' } }] } }));
   await assert.rejects(provider.clean('Raw', 'model', 'prompt'), /vollständig/);
 });

@@ -52,13 +52,13 @@ Open **Recordings and status** from the plugin settings or command palette to re
 - **Dated heading** adds a timestamped heading to each append.
 - **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
 - **Familiar names and concepts** supplies up to 2,000 characters of preferred spellings and terminology to transcription and cleanup.
-- **Transcription provider base URL** and **LLM provider base URL** may point to different OpenAI-compatible API roots. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
+- **Transcription provider base URL** and **LLM provider base URL** may point to different OpenAI-compatible API roots. Transcription uses `/audio/transcriptions`; cleanup and optional title generation use `/chat/completions` with Structured Outputs. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
 
 Each job keeps a snapshot of its processing settings, so changing settings does not alter recordings that are already queued.
 
 ### OpenRouter example
 
-OpenRouter can handle both steps with the plugin's single API key. Set both provider base URLs to `https://openrouter.ai/api/v1`, use an OpenRouter key, and select OpenRouter model slugs. For transcription, `openai/whisper-1` is one documented option. For cleanup, choose a model and route that support both the Responses API and structured outputs. Availability and model support can change; see OpenRouter's [Responses API](https://openrouter.ai/docs/api/api-reference/responses/create-responses), [structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), and [transcription guide](https://openrouter.ai/blog/tutorials/transcription-on-openrouter/).
+OpenRouter can handle both steps with the plugin's single API key. Set both provider base URLs to `https://openrouter.ai/api/v1`, use an OpenRouter key, and select OpenRouter model slugs. For transcription, `openai/whisper-1` is one documented option. For cleanup, choose a model that supports structured outputs through Chat Completions. Availability and model support can change; see OpenRouter's [structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs) and [transcription guide](https://openrouter.ai/blog/tutorials/transcription-on-openrouter/).
 
 The single saved key is sent to both configured provider base URLs. Using two providers that require different keys is therefore not supported by the current settings.
 

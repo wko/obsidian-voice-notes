@@ -21,10 +21,10 @@ test('without opt-in and glossary the existing transcript-only contract remains'
 });
 test('context and vocabulary remain separate source fields; only raw transcript is cleaned', async () => {
   const provider = new OpenAIProvider(() => 'key', async request => {
-    const body = JSON.parse(request.body as string); const input = JSON.parse(body.input);
+    const body = JSON.parse(request.body as string); const input = JSON.parse(body.messages[1].content);
     assert.deepEqual(input, { transcript: 'New words', note_context: 'Existing note', familiar_terms: 'Obsidian; Fractals' });
-    assert.match(body.instructions, /edit only its transcript field/); assert.match(body.instructions, /Do not copy, rewrite or summarize/);
-    return { status: 200, json: { status: 'completed', output: [{ content: [{ type: 'output_text', text: '{"body":"Cleaned addition"}' }] }] } };
+    assert.match(body.messages[0].content, /edit only its transcript field/); assert.match(body.messages[0].content, /Do not copy, rewrite or summarize/);
+    return { status: 200, json: { choices: [{ finish_reason: 'stop', message: { content: '{"body":"Cleaned addition"}' } }] } };
   });
   assert.deepEqual(await provider.clean('New words', 'model', 'Rules', { noteContext: 'Existing note', vocabulary: 'Obsidian; Fractals' }), { body: 'Cleaned addition' });
 });

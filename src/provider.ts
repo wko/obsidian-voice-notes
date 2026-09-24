@@ -12,8 +12,6 @@ export interface HttpRequest {
 
 interface HttpResponse { status: number; json: unknown; }
 interface JsonObject { [key: string]: unknown; }
-interface OutputContent { type?: unknown; text?: unknown; }
-interface OutputItem { content?: unknown; }
 
 export type Transport = (request: HttpRequest) => PromiseLike<HttpResponse>;
 export const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -31,13 +29,15 @@ function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null;
 }
 
-function outputText(response: JsonObject): string {
-  if (!Array.isArray(response.output)) return '';
-  return response.output.flatMap((item: unknown) => {
-    if (!isObject(item) || !Array.isArray((item as OutputItem).content)) return [];
-    return (item as OutputItem).content as OutputContent[];
-  }).filter(item => item.type === 'output_text' && typeof item.text === 'string')
-    .map(item => item.text as string)
+function chatCompletionText(response: JsonObject): string {
+  if (!Array.isArray(response.choices) || !isObject(response.choices[0])) return '';
+  const message = response.choices[0].message;
+  if (!isObject(message)) return '';
+  if (typeof message.content === 'string') return message.content;
+  if (!Array.isArray(message.content)) return '';
+  return message.content
+    .filter(part => isObject(part) && part.type === 'text' && typeof part.text === 'string')
+    .map(part => (part as JsonObject).text as string)
     .join('');
 }
 
@@ -97,11 +97,20 @@ export class OpenAIProvider implements Transcriber, Cleaner {
     instructions.push('Return the result in the required JSON format.');
     const properties = { body: { type: 'string' }, ...(requestTitle ? { title: { type: 'string' } } : {}) };
     const required = requestTitle ? ['body', 'title'] : ['body'];
-    const result = await this.request(baseUrl, 'responses', JSON.stringify({ model, store: false, instructions: instructions.join('\n\n'), input: cleanupInput(transcript, context), text: { format: { type: 'json_schema', name: 'voice_append', strict: true, schema: { type: 'object', properties, required, additionalProperties: false } } } }), 'application/json');
+    const result = await this.request(baseUrl, 'chat/completions', JSON.stringify({
+      model,
+      store: false,
+      messages: [
+        { role: 'system', content: instructions.join('\n\n') },
+        { role: 'user', content: cleanupInput(transcript, context) },
+      ],
+      response_format: { type: 'json_schema', json_schema: { name: 'voice_append', strict: true, schema: { type: 'object', properties, required, additionalProperties: false } } },
+    }), 'application/json');
     if (!isObject(result)) throw new Error(t('Unerwartete Bereinigungsantwort.'));
-    if (result.status && result.status !== 'completed') throw new Error(t('Bereinigung wurde nicht vollständig abgeschlossen. Bitte erneut versuchen.'));
+    const choice = Array.isArray(result.choices) && isObject(result.choices[0]) ? result.choices[0] : undefined;
+    if (choice && typeof choice.finish_reason === 'string' && choice.finish_reason !== 'stop') throw new Error(t('Bereinigung wurde nicht vollständig abgeschlossen. Bitte erneut versuchen.'));
     let parsed: unknown;
-    try { parsed = JSON.parse(outputText(result)); } catch { throw new Error(t('Bereinigungsantwort konnte nicht gelesen werden. Das Transkript bleibt erhalten.')); }
+    try { parsed = JSON.parse(chatCompletionText(result)); } catch { throw new Error(t('Bereinigungsantwort konnte nicht gelesen werden. Das Transkript bleibt erhalten.')); }
     if (!isObject(parsed) || typeof parsed.body !== 'string' || (requestTitle && typeof parsed.title !== 'string')) throw new Error(t('Unerwartete Bereinigungsantwort.'));
     return { body: parsed.body, ...(requestTitle ? { title: parsed.title as string } : {}) };
   }
