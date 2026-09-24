@@ -4,11 +4,12 @@ import type { CleanupContext } from './context';
 import type { AppendPlan } from './append-journal';
 import type { TitleFilenameMode } from './title';
 export const DEFAULT_PROMPT = `Carefully clean up my dictated addition. Remove filler words, repetitions, and abandoned sentence fragments. Correct obvious slips of the tongue. Organize the result into readable Markdown paragraphs and add short headings only when useful. Preserve the original language, tone, meaning, claims, uncertainty, examples, and level of detail. Do not infer new meaning, remove substance, or add information or advice. Return only the cleaned addition.`;
+export const DEFAULT_TITLE_PROMPT = `Create a concise, descriptive title for the new transcript. Capture its main idea in the same language as the transcript.`;
 /**
  * Processing settings are copied into each job.  The endpoint fields are
  * optional only to keep jobs saved by older plugin versions resumable.
  */
-export interface Options { transcriptionModel: string; cleanupModel: string; transcriptionBaseUrl?: string; cleanupBaseUrl?: string; prompt: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; titleFilenameMode?: TitleFilenameMode; }
+export interface Options { transcriptionModel: string; cleanupModel: string; transcriptionBaseUrl?: string; cleanupBaseUrl?: string; prompt: string; titlePrompt?: string; keepTranscript: boolean; datedHeading: boolean; useNoteContext?: boolean; vocabulary?: string; generateTitle?: boolean; titleFilenameMode?: TitleFilenameMode; }
 export interface TitleRenamePlan { sourcePath: string; targetPath: string; sourceCreatedAt?: number; }
 export interface Job {
   id: string; targetPath: string; targetCreatedAt?: number; createdAt: number;
@@ -31,7 +32,8 @@ export function appendText(current: string, job: Job): string {
 }
 export interface Transcriber { transcribe(audio: Blob, model: string, vocabulary?: string, baseUrl?: string): Promise<string>; }
 export interface CleanedResult { body: string; title?: string; }
-export interface Cleaner { clean(transcript: string, model: string, prompt: string, context?: CleanupContext & { requestTitle?: boolean }, baseUrl?: string): Promise<CleanedResult>; }
+export interface CleanupRequestContext extends CleanupContext { requestTitle?: boolean; titlePrompt?: string; }
+export interface Cleaner { clean(transcript: string, model: string, prompt: string, context?: CleanupRequestContext, baseUrl?: string): Promise<CleanedResult>; }
 export async function processJob(job: Job, services: { transcriber: Transcriber; cleaner: Cleaner; save(job: Job): Promise<void>; append(job: Job): Promise<void> }): Promise<void> {
   if (job.state === 'completed') return;
   try {
@@ -45,7 +47,7 @@ export async function processJob(job: Job, services: { transcriber: Transcriber;
     }
     if (job.cleaned === undefined) {
       job.state = 'cleaning'; await services.save(job);
-      const cleaned = await services.cleaner.clean(job.raw, job.options.cleanupModel, job.options.prompt, { noteContext: job.options.useNoteContext ? job.noteContext : undefined, vocabulary: job.options.vocabulary, requestTitle: job.requestTitle }, job.options.cleanupBaseUrl);
+      const cleaned = await services.cleaner.clean(job.raw, job.options.cleanupModel, job.options.prompt, { noteContext: job.options.useNoteContext ? job.noteContext : undefined, vocabulary: job.options.vocabulary, requestTitle: job.requestTitle, titlePrompt: job.options.titlePrompt }, job.options.cleanupBaseUrl);
       if (!cleaned.body.trim()) throw new Error(t('Die Bereinigung enthält keinen Text.'));
       job.cleaned = cleaned.body; job.generatedTitle = cleaned.title; await services.save(job);
     }

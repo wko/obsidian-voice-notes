@@ -35,7 +35,7 @@ export function titledBasename(current: string, rawTitle: string | undefined, mo
   const title = sanitizeGeneratedTitle(rawTitle);
   if (!title) return '';
   if (mode === 'replace') return title;
-  const suffix = ` - ${title}`;
+  const suffix = ` ${title}`;
   if (current.normalize('NFC').toLocaleLowerCase() === title.toLocaleLowerCase() || current.normalize('NFC').toLocaleLowerCase().endsWith(suffix.toLocaleLowerCase())) return current;
   const prefix = truncateUtf8(current.normalize('NFC').trim(), Math.max(0, MAX_BASENAME_BYTES - new TextEncoder().encode(suffix).byteLength)).replace(/[ .]+$/g, '');
   return prefix ? `${prefix}${suffix}` : title;

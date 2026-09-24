@@ -40,8 +40,8 @@ test('empty speech never invokes cleanup or appends', async () => {
   assert.equal(j.raw, undefined); assert.ok(j.audio);
 });
 test('snapshotted prompt is used and completed jobs are not reprocessed', async () => {
-  const j = job(); j.options.prompt = 'My prompt';
-  const services = { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean(raw: string, model: string, prompt: string) { assert.equal(raw, 'raw'); assert.equal(prompt, 'My prompt'); return { body: 'clean' }; } }, async save() {}, async append() {} };
+  const j = job(); j.options.prompt = 'My prompt'; j.options.titlePrompt = 'My title rules'; j.requestTitle = true;
+  const services = { transcriber: { async transcribe() { return 'raw'; } }, cleaner: { async clean(raw: string, model: string, prompt: string, context?: { titlePrompt?: string }) { assert.equal(raw, 'raw'); assert.equal(prompt, 'My prompt'); assert.equal(context?.titlePrompt, 'My title rules'); return { body: 'clean', title: 'Title' }; } }, async save() {}, async append() {} };
   await processJob(j, services);
   await processJob(j, { ...services, async save() { assert.fail('completed job saved again'); } });
 });

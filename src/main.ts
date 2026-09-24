@@ -1,6 +1,6 @@
 import { t, setLanguage, getLocale, type Message } from './i18n';
 import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App } from 'obsidian';
-import { DEFAULT_PROMPT, processJob, type Job, type Options } from './core';
+import { DEFAULT_PROMPT, DEFAULT_TITLE_PROMPT, processJob, type Job, type Options } from './core';
 import { footerExtension, voiceButton } from './editor';
 import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
 import { RecorderModal } from './recorder';
@@ -12,7 +12,7 @@ import { prepareNoteContext, mainContentIsEmpty, MAX_VOCABULARY_CHARS } from './
 import { availableBasename, titledBasename } from './title';
 interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; showInlineButton: boolean; }
 declare const VOICE_APPEND_LAB: boolean;
-const DEFAULTS: Settings = { vaultId: '', transcriptionBaseUrl: OPENAI_BASE_URL, cleanupBaseUrl: OPENAI_BASE_URL, transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, titleFilenameMode: 'append', showInlineButton: true };
+const DEFAULTS: Settings = { vaultId: '', transcriptionBaseUrl: OPENAI_BASE_URL, cleanupBaseUrl: OPENAI_BASE_URL, transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, titlePrompt: DEFAULT_TITLE_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, titleFilenameMode: 'append', showInlineButton: true };
 const LABELS: Record<Job['state'], Message> = { queued: 'Wartet auf Verarbeitung', transcribing: 'Wird transkribiert', cleaning: 'Wird bereinigt', appending: 'Wird angehängt', completed: 'Angehängt', failed: 'Benötigt Aufmerksamkeit' };
 export default class VoiceAppend extends Plugin {
   settings!: Settings;
@@ -369,6 +369,11 @@ class VoiceSettings extends PluginSettingTab {
     new Setting(el).setName(t('Standard-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Titel für leere Notizen erzeugen')).setDesc(t('Erzeugt beim Bereinigen einen Titel und benennt die Notiz um, wenn sie außer Frontmatter noch keinen Inhalt hat.')).addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Titel-Prompt')).setDesc(t('Gilt für neue Aufnahmen und wird beim Cleanup nur dann als eigene Titelanweisung eingefügt, wenn ein Titel erzeugt werden soll.')).addTextArea(text => {
+      text.inputEl.rows = 4; text.inputEl.addClass('voice-append-prompt');
+      text.setValue(this.plugin.settings.titlePrompt ?? DEFAULT_TITLE_PROMPT).onChange(async value => { this.plugin.settings.titlePrompt = value || DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); });
+    });
+    new Setting(el).setName(t('Standard-Titel-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.titlePrompt = DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Verhalten des Dateinamens')).setDesc(t('Anhängen behält bestehende Namen wie Zeitstempel von Unique Notes bei. Ersetzen verwendet nur den erzeugten Titel.')).addDropdown(dropdown => dropdown
       .addOption('append', t('An bestehenden Dateinamen anhängen'))
       .addOption('replace', t('Bestehenden Dateinamen ersetzen'))

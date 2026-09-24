@@ -38,7 +38,7 @@ Reload Obsidian, open **Settings → Community plugins**, and enable **Voice App
 
 1. Open **Settings → Voice Append**.
 2. Enter one API key and select **Save** on each device. The plugin stores the key locally through Obsidian Secret Storage; it is not synced with the vault.
-3. Configure independent OpenAI-compatible base URLs and models for transcription and cleanup, plus the cleanup prompt, if needed. Enter the complete API base (for example `https://api.openai.com/v1`), not a request path. The same stored key is used for both endpoints.
+3. Configure independent OpenAI-compatible base URLs and models for transcription and cleanup, plus the cleanup and title prompts, if needed. Enter the complete API base (for example `https://api.openai.com/v1`), not a request path. The same stored key is used for both endpoints.
 4. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
 5. Select **Stop & append** when finished. The recording is saved locally before network processing starts, and the note scrolls to the processing indicator.
 
@@ -47,7 +47,7 @@ Open **Recordings and status** from the plugin settings or command palette to re
 ## Settings
 
 - **Show recording button in notes** controls the inline button. Commands and toolbar actions remain available.
-- **Generate titles for empty notes** requests a concise title in the same cleanup call. If the note has no body content both when recording starts and when the result is appended, the plugin renames the file through Obsidian so links stay current. Frontmatter is ignored. The default **Append to existing filename** mode preserves Unique Notes timestamps (for example, `20260924 083000 - Morning idea.md`); **Replace existing filename** uses only the generated title. Generated titles are not inserted into the note body.
+- **Generate titles for empty notes** requests a title in the same cleanup call. The separate **Title prompt** is included in the cleanup instructions only when a title is requested. If the note has no body content both when recording starts and when the result is appended, the plugin renames the file through Obsidian so links stay current. Frontmatter is ignored. The default **Append to existing filename** mode preserves Unique Notes timestamps (for example, `20260924 083000 Morning idea.md`); **Replace existing filename** uses only the generated title. Generated titles are not inserted into the note body.
 - **Include original transcript** adds a collapsed transcript section below the cleaned text.
 - **Dated heading** adds a timestamped heading to each append.
 - **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
