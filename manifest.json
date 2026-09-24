@@ -3,7 +3,7 @@
   "name": "Voice Append",
   "version": "0.3.0",
   "minAppVersion": "1.11.4",
-  "description": "Record thoughts, clean them up with OpenAI and append them to the current note.",
+  "description": "Record, transcribe, clean up, and append thoughts with configurable providers.",
   "author": "Walter Forkel",
   "authorUrl": "https://github.com/wko",
   "isDesktopOnly": false

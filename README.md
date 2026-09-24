@@ -1,12 +1,12 @@
 # Voice Append
 
-Voice Append records a thought, transcribes it with OpenAI, cleans it up, and appends the result to the active Obsidian note. It is designed for quick capture on iPhone and also works on desktop.
+Voice Append records a thought, transcribes it through a configurable transcription provider, cleans it up with an LLM provider, and appends the result to the active Obsidian note. It is designed for quick capture on iPhone and also works on desktop.
 
 ## Features
 
 - Record from the end of a note, the command palette, the ribbon, or Obsidian's mobile toolbar.
 - Keep the screen awake while a recording is active where the platform permits it.
-- Transcribe and clean up speech directly through the OpenAI API without a separate server.
+- Transcribe and clean up speech directly through OpenAI-compatible provider endpoints without a separate server.
 - Show progress at the end of the target note without writing technical markers into Markdown.
 - Resume saved jobs after a restart or temporary network failure.
 - Optionally include note context and familiar names or terminology during cleanup.
@@ -52,17 +52,21 @@ Open **Recordings and status** from the plugin settings or command palette to re
 - **Dated heading** adds a timestamped heading to each append.
 - **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
 - **Familiar names and concepts** supplies up to 2,000 characters of preferred spellings and terminology to transcription and cleanup.
-- **Transcription base URL** and **Cleanup base URL** may point to different OpenAI-compatible API roots. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
+- **Transcription provider base URL** and **LLM provider base URL** may point to different OpenAI-compatible API roots. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
 
 Each job keeps a snapshot of its processing settings, so changing settings does not alter recordings that are already queued.
 
 ## Privacy and data handling
 
-Voice Append sends new audio to the configured transcription endpoint and its transcript to the configured cleanup endpoint. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
+Voice Append sends new audio to the configured transcription provider and its transcript to the configured LLM provider. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
 
 The API key is stored using Obsidian Secret Storage under a stable, plugin-owned name. Existing keys stored under an earlier vault-ID-based name are migrated when unambiguous. Endpoint URLs and models are ordinary plugin settings; no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. New audio is read and stored as bytes before the plugin reports it saved. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
 
-Review [OpenAI's data controls](https://platform.openai.com/docs/guides/your-data) before using the plugin with sensitive material.
+Review the privacy and data-retention policies of your configured providers before using the plugin with sensitive material.
+
+## Feedback and support
+
+Use [GitHub Issues](https://github.com/wko/obsidian-voice-notes/issues/new/choose) to report bugs or suggest features. Search existing issues first, and remove API keys and private note content before submitting a report. The plugin settings provide direct links for bug reports and feature requests.
 
 ## Platform behavior and limitations
 
@@ -94,10 +98,10 @@ Development builds include two local test commands. Release builds omit them and
 The processing path is:
 
 ```text
-recorder.ts → IndexedDB → resumable job processor → OpenAI → Obsidian editor or vault
+recorder.ts → IndexedDB → resumable job processor → configured providers → Obsidian editor or vault
 ```
 
-The test suite covers storage recovery, append idempotency, localization, microphone permissions, wake lock behavior, note context, title generation, OpenAI request contracts, and error handling.
+The test suite covers storage recovery, append idempotency, localization, microphone permissions, wake lock behavior, note context, title generation, provider request contracts, and error handling.
 
 ## Releasing
 

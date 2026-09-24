@@ -4,7 +4,7 @@ import { DEFAULT_PROMPT, DEFAULT_TITLE_PROMPT, processJob, type Job, type Option
 import { footerExtension, voiceButton } from './editor';
 import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
 import { RecorderModal } from './recorder';
-import { JobStore } from './store';
+import { JobStore, type JobSummary } from './store';
 import { ApiKey } from './api-key';
 import { createAppendPlan, inspectAppend, applyAppendPlan, removeLegacyComments } from './append-journal';
 import { noteProgress, type ProgressJob } from './progress';
@@ -40,7 +40,7 @@ export default class VoiceAppend extends Plugin {
     if (!this.settings.vaultId) { this.settings.vaultId = crypto.randomUUID(); await this.saveSettings(); }
     this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId);
     this.store = await JobStore.open(this.settings.vaultId);
-    for (const job of await this.store.all()) { this.cacheProgress(job); const file = this.app.vault.getAbstractFileByPath(job.targetPath); if (file instanceof TFile) this.targetFiles.set(job.id, file); }
+    for (const job of await this.store.list()) { this.cacheProgress(job); const file = this.app.vault.getAbstractFileByPath(job.targetPath); if (file instanceof TFile) this.targetFiles.set(job.id, file); }
     this.provider = new OpenAIProvider(() => this.apiKey.get(), request => requestUrl(request));
     this.addSettingTab(new VoiceSettings(this.app, this));
     this.addCommand({ id: 'record', name: t('Gedanken ergänzen'), icon: 'mic', checkCallback: checking => { const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return false; if (!checking) this.start(file); return true; } });
@@ -93,7 +93,7 @@ export default class VoiceAppend extends Plugin {
     if (settings.titleFilenameMode !== 'replace') settings.titleFilenameMode = 'append';
     return settings;
   }
-  private cacheProgress(job: Job) { this.progressJobs.set(job.id, { id: job.id, state: job.state, targetPath: job.targetPath, createdAt: job.createdAt }); }
+  private cacheProgress(job: Pick<Job, 'id' | 'state' | 'targetPath' | 'createdAt'>) { this.progressJobs.set(job.id, { id: job.id, state: job.state, targetPath: job.targetPath, createdAt: job.createdAt }); }
   private async saveJob(job: Job) { await this.store.save(job); this.cacheProgress(job); this.notify(); }
   private bindProgress(el: HTMLElement, file: () => TFile | null | undefined): () => void {
     const row = el.ownerDocument.createElement('div'); row.className = 'voice-append-progress';
@@ -159,7 +159,8 @@ export default class VoiceAppend extends Plugin {
   }
   openOutbox() { new Outbox(this.app, this).open(); }
   private async updatePaths(file: TAbstractFile, oldPath: string) {
-    for (const job of await this.store.all()) if ((job.targetPath === oldPath || job.targetPath.startsWith(oldPath + '/')) && job.state !== 'completed') {
+    for (const item of await this.store.list()) if ((item.targetPath === oldPath || item.targetPath.startsWith(oldPath + '/')) && item.state !== 'completed') {
+      const job = await this.store.get(item.id); if (!job) continue;
       job.targetPath = file.path + job.targetPath.slice(oldPath.length);
       const target = this.app.vault.getAbstractFileByPath(job.targetPath); if (target instanceof TFile) this.targetFiles.set(job.id, target);
       this.cacheProgress(job);
@@ -171,10 +172,11 @@ export default class VoiceAppend extends Plugin {
     if (!this.notesReady || this.running || this.disposed || !navigator.onLine) return;
     this.running = true;
     try {
-      const jobs = (await this.store.all()).sort((a, b) => a.createdAt - b.createdAt);
-      for (const job of jobs) {
+      const jobs = (await this.store.list()).sort((a, b) => a.createdAt - b.createdAt);
+      for (const item of jobs) {
         if (this.disposed) break;
-        if (job.state === 'completed' || (job.state === 'failed' && job.id !== retryId)) continue;
+        if (item.state === 'completed' || (item.state === 'failed' && item.id !== retryId)) continue;
+        const job = await this.store.get(item.id); if (!job) continue;
         if (job.audio && job.audio.size > 24 * 1024 * 1024) continue;
         this.activeId = job.id;
         try {
@@ -195,7 +197,7 @@ export default class VoiceAppend extends Plugin {
       }
     } finally {
       this.activeId = undefined; this.running = false; this.notify();
-      if (!this.disposed && navigator.onLine && (await this.store.all()).some(job => job.state === 'queued')) void this.runQueue();
+      if (!this.disposed && navigator.onLine && (await this.store.list()).some(job => job.state === 'queued')) void this.runQueue();
     }
   }
   private async append(job: Job) {
@@ -313,7 +315,7 @@ export default class VoiceAppend extends Plugin {
     }
     job.targetPath = file.path; job.targetCreatedAt = file.stat.ctime; this.targetFiles.set(job.id, file); await this.saveJob(job); this.notify(); await this.runQueue(job.id);
   }
-  removeRecording(job: Job) {
+  removeRecording(job: Pick<Job, 'id' | 'state'>) {
     if (this.running || !['completed', 'failed', 'queued'].includes(job.state)) { new Notice(t('Bitte die laufende Verarbeitung abwarten.')); return; }
     const modal = new Modal(this.app); modal.setTitle(t('Aufnahme löschen?'));
     modal.contentEl.createEl('p', { text: t('Audio und Verarbeitungsergebnisse dieser Aufnahme werden aus dem lokalen Speicher gelöscht. Bereits angehängter Notiztext bleibt erhalten.') });
@@ -336,18 +338,18 @@ export default class VoiceAppend extends Plugin {
       host.append(el); this.readingFooters.set(view, { host, el, dispose });
     }
   }
-  onunload() { this.disposed = true; this.app.workspace.containerEl.classList.remove('voice-append-hide-inline-button'); this.recorder?.close(); this.readingFooters.forEach(item => { item.dispose(); item.el.remove(); }); this.listeners.clear(); /* In-flight requests retain the DB to persist recoverable results. */ }
+  onunload() { this.disposed = true; this.app.workspace.containerEl.classList.remove('voice-append-hide-inline-button'); this.recorder?.close(); this.readingFooters.forEach(item => { item.dispose(); item.el.remove(); }); this.listeners.clear(); if (!this.running) this.store?.close(); /* In-flight requests retain the DB to persist recoverable results. */ }
 }
 class VoiceSettings extends PluginSettingTab {
   constructor(app: App, private plugin: VoiceAppend) { super(app, plugin); }
   display() {
     const el = this.containerEl; el.empty();
-    el.createEl('p', { text: t('Neue Aufnahmen und ihre Transkripte werden direkt an OpenAI übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
+    el.createEl('p', { text: t('Neue Aufnahmen werden direkt an die konfigurierten Transkriptions- und LLM-Provider übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
     let keyValue = this.plugin.apiKey.get();
-    new Setting(el).setName(t('OpenAI-Schlüssel')).setDesc(t('Ein OpenAI-API-Schlüssel für Transkription und Bereinigung. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt den Schlüssel nicht.'))
+    new Setting(el).setName(t('Provider-API-Schlüssel')).setDesc(t('Ein API-Schlüssel für Transkriptions- und LLM-Provider. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt den Schlüssel nicht.'))
       .addText(text => {
         text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
-        text.setPlaceholder(t('OpenAI-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
+        text.setPlaceholder(t('Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
       })
       .addButton(button => button.setButtonText(t('Speichern')).onClick(async () => {
         try {
@@ -356,37 +358,44 @@ class VoiceSettings extends PluginSettingTab {
         } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); }
       }));
     const endpointDescription = t('Vollständige OpenAI-kompatible API-Basis, z. B. https://api.openai.com/v1. API-Schlüssel gehören nicht in diese URL.');
-    for (const [key, name] of [['transcriptionBaseUrl', t('Transkriptions-Basis-URL')], ['cleanupBaseUrl', t('Bereinigungs-Basis-URL')]] as const) {
+    for (const [key, name] of [['transcriptionBaseUrl', t('Transkriptions-Provider-Basis-URL')], ['cleanupBaseUrl', t('LLM-Provider-Basis-URL')]] as const) {
       new Setting(el).setName(name).setDesc(endpointDescription).addText(text => text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL).onChange(async value => {
         try { this.plugin.settings[key] = normalizeBaseUrl(value); await this.plugin.saveSettings(); }
         catch { new Notice(t('Ungültige API-Basis-URL.')); text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL); }
       }));
     }
-    for (const [key, name] of [['transcriptionModel', t('Transkriptionsmodell')], ['cleanupModel', t('Bereinigungsmodell')]] as const) {
-      new Setting(el).setName(name).addText(text => text.setValue(this.plugin.settings[key]).onChange(async value => { this.plugin.settings[key] = value.trim() || DEFAULTS[key]; await this.plugin.saveSettings(); }));
+    for (const [key, name, description] of [
+      ['transcriptionModel', t('Transkriptionsmodell'), t('Modellname beim Transkriptions-Provider. Gilt für neue Aufnahmen.')],
+      ['cleanupModel', t('LLM-Modell'), t('Modellname beim LLM-Provider für Bereinigung und optionale Titel. Gilt für neue Aufnahmen.')],
+    ] as const) {
+      new Setting(el).setName(name).setDesc(description).addText(text => text.setValue(this.plugin.settings[key]).onChange(async value => { this.plugin.settings[key] = value.trim() || DEFAULTS[key]; await this.plugin.saveSettings(); }));
     }
     new Setting(el).setName(t('Bereinigungs-Prompt')).setDesc(t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.')).addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); });
-    new Setting(el).setName(t('Standard-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
+    new Setting(el).setName(t('Standard-Prompt wiederherstellen')).setDesc(t('Setzt den Bereinigungs-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Titel für leere Notizen erzeugen')).setDesc(t('Erzeugt beim Bereinigen einen Titel und benennt die Notiz um, wenn sie außer Frontmatter noch keinen Inhalt hat.')).addToggle(toggle => toggle.setValue(this.plugin.settings.generateTitle ?? false).onChange(async value => { this.plugin.settings.generateTitle = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Titel-Prompt')).setDesc(t('Gilt für neue Aufnahmen und wird beim Cleanup nur dann als eigene Titelanweisung eingefügt, wenn ein Titel erzeugt werden soll.')).addTextArea(text => {
       text.inputEl.rows = 4; text.inputEl.addClass('voice-append-prompt');
       text.setValue(this.plugin.settings.titlePrompt ?? DEFAULT_TITLE_PROMPT).onChange(async value => { this.plugin.settings.titlePrompt = value || DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); });
     });
-    new Setting(el).setName(t('Standard-Titel-Prompt wiederherstellen')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.titlePrompt = DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); this.display(); }));
+    new Setting(el).setName(t('Standard-Titel-Prompt wiederherstellen')).setDesc(t('Setzt den Titel-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.titlePrompt = DEFAULT_TITLE_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Verhalten des Dateinamens')).setDesc(t('Anhängen behält bestehende Namen wie Zeitstempel von Unique Notes bei. Ersetzen verwendet nur den erzeugten Titel.')).addDropdown(dropdown => dropdown
       .addOption('append', t('An bestehenden Dateinamen anhängen'))
       .addOption('replace', t('Bestehenden Dateinamen ersetzen'))
       .setValue(this.plugin.settings.titleFilenameMode ?? 'append')
       .onChange(async value => { this.plugin.settings.titleFilenameMode = value === 'replace' ? 'replace' : 'append'; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Originaltranskript anhängen')).setDesc(t('Standardmäßig aus. Bei Aktivierung als eingeklappter Abschnitt unter der Ergänzung.')).addToggle(toggle => toggle.setValue(this.plugin.settings.keepTranscript).onChange(async value => { this.plugin.settings.keepTranscript = value; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Datierte Überschrift')).addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); }));
-    new Setting(el).setName(t('Notizkontext beim Bereinigen verwenden')).setDesc(t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an OpenAI. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.')).addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Datierte Überschrift')).setDesc(t('Fügt vor jeder neuen Ergänzung eine Überschrift mit Datum und Uhrzeit ein.')).addToggle(toggle => toggle.setValue(this.plugin.settings.datedHeading).onChange(async value => { this.plugin.settings.datedHeading = value; await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Notizkontext beim Bereinigen verwenden')).setDesc(t('Optional. Sendet bis zu 16.000 Zeichen der aktuellen Notiz an den LLM-Provider. Hilft bei Bezügen und Begriffen; bestehender Text wird nicht umgeschrieben.')).addToggle(toggle => toggle.setValue(this.plugin.settings.useNoteContext ?? false).onChange(async value => { this.plugin.settings.useNoteContext = value; await this.plugin.saveSettings(); }));
     new Setting(el).setName(t('Bekannte Namen und Konzepte')).setDesc(t('Optional. Namen, Fachbegriffe und bevorzugte Schreibweisen, etwa „Obsidian; Walter Forkel; Fractals“. Wird für Transkription und Bereinigung verwendet. Maximal 2.000 Zeichen.')).addTextArea(text => {
       text.inputEl.rows = 4; text.inputEl.maxLength = MAX_VOCABULARY_CHARS;
       text.setValue(this.plugin.settings.vocabulary ?? '').onChange(async value => { this.plugin.settings.vocabulary = value.slice(0, MAX_VOCABULARY_CHARS); await this.plugin.saveSettings(); });
     });
     new Setting(el).setName(t('Gespeicherte Aufnahmen')).setDesc(t('Lokal auf diesem Gerät. Erfolgreiche Audiodateien bleiben sieben Tage erhalten. Offene Aufnahmen werden nicht automatisch gelöscht.')).addButton(button => button.setButtonText(t('Aufnahmen und Status')).onClick(() => this.plugin.openOutbox()));
+    new Setting(el).setName(t('Feedback und Support')).setDesc(t('Melde Fehler oder schlage Funktionen über GitHub Issues vor. Entferne vorher API-Schlüssel und private Notizinhalte aus deinem Bericht.'))
+      .addButton(button => button.setButtonText(t('Fehler melden')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=bug_report.yml', '_blank')))
+      .addButton(button => button.setButtonText(t('Funktion vorschlagen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=feature_request.yml', '_blank')))
+      .addButton(button => button.setButtonText(t('Repository öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes', '_blank')));
     el.createEl('p', { text: t('Erste Entwicklungsversion: Aufnahmen bei geöffneter App. Displaysperre oder ein vom System beendeter Prozess können die laufende, noch nicht gespeicherte Aufnahme unterbrechen.'), cls: 'voice-append-hint' });
   }
 }
@@ -394,25 +403,70 @@ class Outbox extends Modal {
   private unsubscribe?: () => void;
   private urls: string[] = [];
   private renderVersion = 0;
+  private rendering = false;
+  private renderAgain = false;
+  private closed = true;
   constructor(app: App, private plugin: VoiceAppend) { super(app); }
-  onOpen() { this.setTitle(t('Aufnahmen und Status')); this.unsubscribe = this.plugin.subscribe(() => { void this.render(); }); void this.render(); }
+  onOpen() { this.closed = false; this.setTitle(t('Aufnahmen und Status')); this.unsubscribe = this.plugin.subscribe(() => this.requestRender()); this.requestRender(); }
+  private requestRender() {
+    if (this.rendering) { this.renderAgain = true; return; }
+    this.rendering = true;
+    void (async () => {
+      try {
+        do { this.renderAgain = false; await this.render(); } while (this.renderAgain);
+      } catch {
+        if (!this.closed) { this.contentEl.empty(); this.contentEl.createEl('p', { text: t('Aufnahmen konnten nicht geladen werden. Bitte Obsidian neu starten und erneut versuchen.'), cls: 'voice-append-error' }); }
+      } finally { this.rendering = false; }
+    })();
+  }
   private async render() {
-    const version = ++this.renderVersion; const jobs = await this.plugin.store.all();
+    const version = ++this.renderVersion; const jobs = await this.plugin.store.list();
     if (version !== this.renderVersion) return;
     this.urls.forEach(url => URL.revokeObjectURL(url)); this.urls = []; this.contentEl.empty();
     if (!jobs.length) this.contentEl.createEl('p', { text: t('Noch keine Aufnahmen. Öffne eine Notiz und tippe am Ende auf das Mikrofon.') });
     for (const job of jobs.sort((a, b) => b.createdAt - a.createdAt)) {
       const card = this.contentEl.createDiv({ cls: 'voice-append-job' });
-      card.createEl('strong', { text: job.targetPath }); card.createEl('p', { text: `${t(LABELS[job.state])} · ${new Date(job.createdAt).toLocaleString(getLocale())}` });
-      if (job.error) card.createEl('p', { text: job.error, cls: 'voice-append-error' });
-      if (job.audio) { const url = URL.createObjectURL(job.audio); this.urls.push(url); card.createEl('audio', { attr: { controls: '', src: url } }); card.createEl('a', { text: t('Audio herunterladen'), attr: { href: url, download: `voice-${job.id}.${job.mime.includes('mp4') ? 'm4a' : 'webm'}` } }); }
-      if (job.raw) { const details = card.createEl('details'); details.createEl('summary', { text: t('Transkript anzeigen') }); details.createEl('p', { text: job.raw }); }
+      const path = typeof job.targetPath === 'string' && job.targetPath ? job.targetPath : t('Unbekannte Zielnotiz');
+      const label = Object.prototype.hasOwnProperty.call(LABELS, job.state) ? t(LABELS[job.state]) : t('Benötigt Aufmerksamkeit');
+      const created = typeof job.createdAt === 'number' && Number.isFinite(job.createdAt) ? new Date(job.createdAt).toLocaleString(getLocale()) : t('Unbekannter Zeitpunkt');
+      card.createEl('strong', { text: path }); card.createEl('p', { text: `${label} · ${created}` });
+      if (typeof job.error === 'string' && job.error) card.createEl('p', { text: job.error, cls: 'voice-append-error' });
+      if (job.hasAudio) {
+        const load = card.createEl('button', { text: t('Audio laden'), cls: 'voice-append-audio-load' });
+        load.onclick = () => { void this.loadAudio(job, card, load); };
+      }
+      if (typeof job.raw === 'string' && job.raw) { const details = card.createEl('details'); details.createEl('summary', { text: t('Transkript anzeigen') }); details.createEl('p', { text: job.raw }); }
       if (job.state === 'failed' || job.state === 'queued') {
         const retry = card.createEl('button', { text: t('Erneut versuchen') }); retry.onclick = () => { void this.plugin.runQueue(job.id); };
-        const assign = card.createEl('button', { text: t('An geöffnete Notiz anhängen') }); assign.onclick = () => { void this.plugin.reassign(job); };
+        const assign = card.createEl('button', { text: t('An geöffnete Notiz anhängen') }); assign.onclick = () => { void this.reassign(job.id); };
       }
       if (['completed', 'failed', 'queued'].includes(job.state)) { const remove = card.createEl('button', { text: t('Aufnahme löschen') }); remove.onclick = () => this.plugin.removeRecording(job); }
     }
   }
-  onClose() { this.renderVersion++; this.unsubscribe?.(); this.urls.forEach(url => URL.revokeObjectURL(url)); }
+  private async loadAudio(summary: JobSummary, card: HTMLElement, button: HTMLButtonElement) {
+    button.disabled = true;
+    try {
+      const job = await this.plugin.store.get(summary.id);
+      if (!job?.audio) throw new Error('missing audio');
+      const bytes = await job.audio.arrayBuffer();
+      if (!bytes.byteLength || bytes.byteLength !== job.audio.size) throw new Error('unreadable audio');
+      if (!card.isConnected) return;
+      const mime = typeof job.mime === 'string' ? job.mime : '';
+      this.urls.forEach(url => URL.revokeObjectURL(url)); this.urls = [];
+      this.contentEl.querySelectorAll('.voice-append-loaded-audio').forEach(element => element.remove());
+      this.contentEl.querySelectorAll<HTMLButtonElement>('.voice-append-audio-load').forEach(element => { element.hidden = false; element.disabled = false; });
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime })); this.urls.push(url);
+      card.createEl('audio', { cls: 'voice-append-loaded-audio', attr: { controls: '', src: url } });
+      card.createEl('a', { text: t('Audio herunterladen'), cls: 'voice-append-loaded-audio', attr: { href: url, download: `voice-${job.id}.${mime.includes('mp4') || mime.includes('m4a') ? 'm4a' : mime.includes('wav') ? 'wav' : 'webm'}` } });
+      button.hidden = true;
+    } catch {
+      if (card.isConnected) card.createEl('p', { text: t('Gespeicherte Audiodaten können nicht gelesen werden. Die übrigen Aufnahmedaten bleiben verfügbar.'), cls: 'voice-append-error' });
+      button.disabled = false;
+    }
+  }
+  private async reassign(id: string) {
+    try { const job = await this.plugin.store.get(id); if (job) await this.plugin.reassign(job); else new Notice(t('Aufnahme wurde nicht gefunden.')); }
+    catch { new Notice(t('Aufnahme konnte nicht geladen werden.')); }
+  }
+  onClose() { this.closed = true; this.renderVersion++; this.renderAgain = false; this.unsubscribe?.(); this.urls.forEach(url => URL.revokeObjectURL(url)); this.urls = []; }
 }

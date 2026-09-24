@@ -1,30 +1,53 @@
 name: Bug report
-description: Report a reproducible problem in Voice Append
+description: Report a reproducible problem with Voice Append
 title: "[Bug]: "
 labels: [bug]
 body:
-  - type: textarea
-    id: description
+  - type: markdown
     attributes:
-      label: Description
-      description: What happened, and what did you expect?
+      value: Thanks for helping improve Voice Append. Remove API keys, transcripts, and private note content before submitting.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: e.g. 0.3.0
     validations:
       required: true
   - type: input
-    id: versions
+    id: obsidian-version
     attributes:
-      label: Versions
-      description: Voice Append version, Obsidian version, operating system, and device
+      label: Obsidian version
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [iOS, Android, macOS, Windows, Linux]
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
+      label: Steps to reproduce
+      description: Include the smallest sequence that consistently triggers the problem.
     validations:
       required: true
   - type: textarea
-    id: details
+    id: expected
     attributes:
-      label: Additional details
-      description: Remove API keys, recordings, transcripts, note contents, and other sensitive data.
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Optional. Remove secrets and private content.
+      render: shell
