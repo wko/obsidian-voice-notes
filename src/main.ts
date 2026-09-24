@@ -1,23 +1,25 @@
 import { t, setLanguage, getLocale, type Message } from './i18n';
 import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App } from 'obsidian';
-import { DEFAULT_PROMPT, DEFAULT_TITLE_PROMPT, processJob, type Job, type Options } from './core';
+import { DEFAULT_PROMPT, DEFAULT_TITLE_PROMPT, processJob, type Job } from './core';
 import { footerExtension, voiceButton } from './editor';
 import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
 import { RecorderModal } from './recorder';
 import { JobStore, type JobSummary } from './store';
-import { ApiKey } from './api-key';
+import { ApiKey, DeviceSecret } from './api-key';
 import { createAppendPlan, inspectAppend, applyAppendPlan, removeLegacyComments } from './append-journal';
 import { noteProgress, type ProgressJob } from './progress';
 import { prepareNoteContext, mainContentIsEmpty, MAX_VOCABULARY_CHARS } from './context';
 import { availableBasename, titledBasename } from './title';
-interface Settings extends Options { vaultId: string; secretId?: string; legacyCommentsRemoved?: boolean; showInlineButton: boolean; }
+import { applyPreset, DEFAULTS, migrateSettings, snapshotOptions, type ProviderPreset, type Settings } from './settings';
+import { runConfigurationTest, type ConfigurationTestResult } from './config-test';
+import configurationTestAudio from './assets/configuration-test.wav';
 declare const VOICE_APPEND_LAB: boolean;
-const DEFAULTS: Settings = { vaultId: '', transcriptionBaseUrl: OPENAI_BASE_URL, cleanupBaseUrl: OPENAI_BASE_URL, transcriptionModel: 'gpt-transcribe', cleanupModel: 'gpt-5.6-luna', prompt: DEFAULT_PROMPT, titlePrompt: DEFAULT_TITLE_PROMPT, keepTranscript: false, datedHeading: false, useNoteContext: false, vocabulary: '', generateTitle: false, titleFilenameMode: 'append', showInlineButton: true };
 const LABELS: Record<Job['state'], Message> = { queued: 'Wartet auf Verarbeitung', transcribing: 'Wird transkribiert', cleaning: 'Wird bereinigt', appending: 'Wird angehängt', completed: 'Angehängt', failed: 'Benötigt Aufmerksamkeit' };
 export default class VoiceAppend extends Plugin {
   settings!: Settings;
   store!: JobStore;
   apiKey!: ApiKey;
+  transcriptionApiKey!: DeviceSecret;
   private progressJobs = new Map<string, ProgressJob>();
   private provider!: OpenAIProvider;
   private recorder?: RecorderModal;
@@ -31,23 +33,24 @@ export default class VoiceAppend extends Plugin {
   async onload() {
     setLanguage(getLanguage());
     const saved: unknown = await this.loadData();
-    this.settings = this.migrateSettings(saved);
+    this.settings = migrateSettings(saved);
     const savedSettings = saved && typeof saved === 'object' ? saved as Partial<Settings> : {};
     // Persist endpoint defaults once, so subsequent launches and new job snapshots
     // use the same explicit configuration. Secret references remain untouched.
-    if (!('transcriptionBaseUrl' in savedSettings) || !('cleanupBaseUrl' in savedSettings)) await this.saveSettings();
+    if (!('transcriptionBaseUrl' in savedSettings) || !('cleanupBaseUrl' in savedSettings) || savedSettings.settingsVersion !== this.settings.settingsVersion) await this.saveSettings();
     this.updateAppearance();
     if (!this.settings.vaultId) { this.settings.vaultId = crypto.randomUUID(); await this.saveSettings(); }
     this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId);
+    this.transcriptionApiKey = new DeviceSecret(this.app.secretStorage, 'voice-append-transcription-api-key');
     this.store = await JobStore.open(this.settings.vaultId);
     for (const job of await this.store.list()) { this.cacheProgress(job); const file = this.app.vault.getAbstractFileByPath(job.targetPath); if (file instanceof TFile) this.targetFiles.set(job.id, file); }
-    this.provider = new OpenAIProvider(() => this.apiKey.get(), request => requestUrl(request));
+    this.provider = new OpenAIProvider(() => this.apiKey.get(), request => requestUrl(request), () => this.transcriptionApiKey.get());
     this.addSettingTab(new VoiceSettings(this.app, this));
     this.addCommand({ id: 'record', name: t('Gedanken ergänzen'), icon: 'mic', checkCallback: checking => { const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return false; if (!checking) this.start(file); return true; } });
     this.addCommand({ id: 'outbox', name: t('Aufnahmen und Status öffnen'), callback: () => this.openOutbox() });
     if (VOICE_APPEND_LAB) this.addCommand({ id: 'lab-test', name: t('Lab: Test-Ergänzung ohne Mikrofon und API'), callback: async () => {
       const file = this.app.workspace.getActiveFile(); if (!file || file.extension !== 'md') return;
-      const job: Job = { id: crypto.randomUUID(), targetPath: file.path, createdAt: Date.now(), audio: null, mime: '', duration: 0, options: { ...this.settings }, state: 'queued', raw: 'So, I want to append my thoughts directly to this note, even if I switch notes in between.', cleaned: 'I want to append my thoughts directly to this note, even if I switch notes in between.' };
+      const job: Job = { id: crypto.randomUUID(), targetPath: file.path, createdAt: Date.now(), audio: null, mime: '', duration: 0, options: snapshotOptions(this.settings), state: 'queued', raw: 'So, I want to append my thoughts directly to this note, even if I switch notes in between.', cleaned: 'I want to append my thoughts directly to this note, even if I switch notes in between.' };
       await this.saveJob(job); this.targetFiles.set(job.id, file); await this.runQueue();
     } });
     if (VOICE_APPEND_LAB) this.addCommand({ id: 'lab-progress', name: t('Lab: Fortschrittsanzeige testen (ohne API)'), callback: async () => {
@@ -83,16 +86,6 @@ export default class VoiceAppend extends Plugin {
     await this.store.expireAudio();
   }
   saveSettings() { return this.saveData(this.settings); }
-  /** Adds endpoint defaults to pre-provider configurations without touching secret references. */
-  private migrateSettings(saved: unknown): Settings {
-    const candidate = saved && typeof saved === 'object' ? saved as Partial<Settings> : {};
-    const settings = { ...DEFAULTS, ...candidate };
-    for (const key of ['transcriptionBaseUrl', 'cleanupBaseUrl'] as const) {
-      try { settings[key] = normalizeBaseUrl(settings[key]); } catch { settings[key] = DEFAULTS[key]; }
-    }
-    if (settings.titleFilenameMode !== 'replace') settings.titleFilenameMode = 'append';
-    return settings;
-  }
   private cacheProgress(job: Pick<Job, 'id' | 'state' | 'targetPath' | 'createdAt'>) { this.progressJobs.set(job.id, { id: job.id, state: job.state, targetPath: job.targetPath, createdAt: job.createdAt }); }
   private async saveJob(job: Job) { await this.store.save(job); this.cacheProgress(job); this.notify(); }
   private bindProgress(el: HTMLElement, file: () => TFile | null | undefined): () => void {
@@ -124,7 +117,7 @@ export default class VoiceAppend extends Plugin {
   updateAppearance() { this.app.workspace.containerEl.classList.toggle('voice-append-hide-inline-button', !this.settings.showInlineButton); }
   start(file: TFile) {
     if (this.recorder) { new Notice(t('Eine Aufnahme ist bereits geöffnet.')); return; }
-    const options = { ...this.settings };
+    const options = snapshotOptions(this.settings);
     const snapshot: Promise<{ noteContext?: string; requestTitle: boolean; error?: string }> = options.useNoteContext || options.generateTitle
       ? this.readNote(file).then(markdown => ({ noteContext: options.useNoteContext ? prepareNoteContext(markdown) : undefined, requestTitle: !!options.generateTitle && mainContentIsEmpty(markdown) }), () => ({ requestTitle: false, ...(options.useNoteContext ? { error: t('Kontext konnte nicht gelesen werden. Die Aufnahme bleibt gespeichert.') } : {}) }))
       : Promise.resolve({ requestTitle: false });
@@ -160,6 +153,11 @@ export default class VoiceAppend extends Plugin {
     return view ? view.editor.getValue() : this.app.vault.read(file);
   }
   openOutbox() { new Outbox(this.app, this).open(); }
+  openConfigurationTest() { new ConfigurationTestModal(this.app, this).open(); }
+  runConfigurationTest(onStage: (stage: 'transcription' | 'cleanup') => void) {
+    const bytes = Uint8Array.from(atob(configurationTestAudio), character => character.charCodeAt(0));
+    return runConfigurationTest(new Blob([bytes], { type: 'audio/wav' }), snapshotOptions(this.settings), { transcriber: this.provider, cleaner: this.provider }, onStage);
+  }
   private async updatePaths(file: TAbstractFile, oldPath: string) {
     for (const item of await this.store.list()) if ((item.targetPath === oldPath || item.targetPath.startsWith(oldPath + '/')) && item.state !== 'completed') {
       const job = await this.store.get(item.id); if (!job) continue;
@@ -342,36 +340,76 @@ export default class VoiceAppend extends Plugin {
   }
   onunload() { this.disposed = true; this.app.workspace.containerEl.classList.remove('voice-append-hide-inline-button'); this.recorder?.close(); this.readingFooters.forEach(item => { item.dispose(); item.el.remove(); }); this.listeners.clear(); if (!this.running) this.store?.close(); /* In-flight requests retain the DB to persist recoverable results. */ }
 }
+class ConfigurationTestModal extends Modal {
+  private runId = 0;
+  constructor(app: App, private plugin: VoiceAppend) { super(app); }
+  onOpen() { this.setTitle(t('Konfiguration testen')); this.render(); void this.run(); }
+  onClose() { this.runId++; }
+  private render(stage?: 'transcription' | 'cleanup', result?: ConfigurationTestResult, error?: string) {
+    const el = this.contentEl; el.empty();
+    el.createEl('p', { text: t('Eine kurze mitgelieferte Testaufnahme wird an den Transkriptions-Provider und anschließend an den LLM-Provider gesendet. Es können geringe Providerkosten entstehen.') });
+    if (stage) {
+      const status = el.createDiv({ cls: 'voice-append-test-status' }); const icon = status.createSpan({ cls: 'voice-append-spinner' }); setIcon(icon, 'loader-circle');
+      status.createSpan({ text: stage === 'transcription' ? t('Transkription wird getestet …') : t('Bereinigung wird getestet …') });
+    }
+    if (result) {
+      el.createEl('p', { text: t('Konfiguration funktioniert.'), cls: 'voice-append-test-success' });
+      const raw = el.createEl('details'); raw.createEl('summary', { text: t('Testtranskript anzeigen') }); raw.createEl('p', { text: result.transcript });
+      const cleaned = el.createEl('details'); cleaned.createEl('summary', { text: t('Bereinigtes Testergebnis anzeigen') }); cleaned.createEl('p', { text: result.cleaned });
+    }
+    if (error) el.createEl('p', { text: error, cls: 'voice-append-error' });
+    const controls = el.createDiv({ cls: 'voice-append-controls' });
+    if (!stage) controls.createEl('button', { text: error ? t('Erneut versuchen') : t('Noch einmal testen'), cls: 'mod-cta' }).onclick = () => { void this.run(); };
+    controls.createEl('button', { text: t('Schließen') }).onclick = () => this.close();
+  }
+  private async run() {
+    const id = ++this.runId;
+    try {
+      const result = await this.plugin.runConfigurationTest(stage => { if (id === this.runId) this.render(stage); });
+      if (id === this.runId) this.render(undefined, result);
+    } catch (error) {
+      if (id === this.runId) this.render(undefined, undefined, error instanceof Error ? error.message : t('Konfigurationstest fehlgeschlagen.'));
+    }
+  }
+}
 class VoiceSettings extends PluginSettingTab {
   constructor(app: App, private plugin: VoiceAppend) { super(app, plugin); }
   display() {
     const el = this.containerEl; el.empty();
     el.createEl('p', { text: t('Neue Aufnahmen werden direkt an die konfigurierten Transkriptions- und LLM-Provider übertragen. Notizkontext wird nur übertragen, wenn du ihn unten aktivierst.') });
+    new Setting(el).setName(t('Provider-Einrichtung')).setDesc(t('Die Standardansicht verwendet einen gemeinsamen OpenAI-kompatiblen Provider. Weitere Optionen sind unter den erweiterten Einstellungen verfügbar.')).setHeading();
+    new Setting(el).setName(t('Provider-Voreinstellung')).setDesc(t('Setzt passende Endpoints und Standardmodelle. Custom behält manuell konfigurierte Werte bei.')).addDropdown(dropdown => dropdown
+      .addOption('openai', 'OpenAI')
+      .addOption('openrouter', 'OpenRouter')
+      .addOption('custom', t('Benutzerdefiniert'))
+      .setValue(this.plugin.settings.providerPreset)
+      .onChange(async value => { applyPreset(this.plugin.settings, value as ProviderPreset); await this.plugin.saveSettings(); this.display(); }));
     let keyValue = this.plugin.apiKey.get();
-    new Setting(el).setName(t('LLM-Provider-API-Schlüssel')).setDesc(t('Dieser eine Schlüssel wird für Anfragen an den Transkriptions- und den LLM-Provider verwendet. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt ihn nicht.'))
+    const saveMainKey = async () => {
+      try {
+        this.plugin.apiKey.set(keyValue); delete this.plugin.settings.secretId; await this.plugin.saveSettings();
+        new Notice(t('API-Schlüssel gespeichert.')); return true;
+      } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); return false; }
+    };
+    new Setting(el).setName(t('LLM-Provider-API-Schlüssel')).setDesc(t('Wird für den LLM-Provider und standardmäßig auch für den Transkriptions-Provider verwendet. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt ihn nicht.'))
       .addText(text => {
         text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
         text.setPlaceholder(t('LLM-Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
       })
-      .addButton(button => button.setButtonText(t('Speichern')).onClick(async () => {
-        try {
-          this.plugin.apiKey.set(keyValue); delete this.plugin.settings.secretId; await this.plugin.saveSettings();
-          new Notice(t('API-Schlüssel gespeichert.'));
-        } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); }
-      }));
-    const endpointDescription = t('Vollständige OpenAI-kompatible API-Basis, z. B. https://api.openai.com/v1. API-Schlüssel gehören nicht in diese URL.');
-    for (const [key, name] of [['transcriptionBaseUrl', t('Transkriptions-Provider-Basis-URL')], ['cleanupBaseUrl', t('LLM-Provider-Basis-URL')]] as const) {
-      new Setting(el).setName(name).setDesc(endpointDescription).addText(text => text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL).onChange(async value => {
-        try { this.plugin.settings[key] = normalizeBaseUrl(value); await this.plugin.saveSettings(); }
-        catch { new Notice(t('Ungültige API-Basis-URL.')); text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL); }
-      }));
-    }
+      .addButton(button => button.setButtonText(t('Speichern')).onClick(saveMainKey));
     for (const [key, name, description] of [
       ['transcriptionModel', t('Transkriptionsmodell'), t('Modellname beim Transkriptions-Provider. Gilt für neue Aufnahmen.')],
       ['cleanupModel', t('LLM-Modell'), t('Modellname beim LLM-Provider für Bereinigung und optionale Titel. Gilt für neue Aufnahmen.')],
     ] as const) {
       new Setting(el).setName(name).setDesc(description).addText(text => text.setValue(this.plugin.settings[key]).onChange(async value => { this.plugin.settings[key] = value.trim() || DEFAULTS[key]; await this.plugin.saveSettings(); }));
     }
+    new Setting(el).setName(t('Konfiguration testen')).setDesc(t('Speichert den eingegebenen Schlüssel und prüft Transkription sowie Bereinigung mit einer kurzen mitgelieferten Testaufnahme. Verändert keine Notiz.'))
+      .addButton(button => button.setButtonText(t('Test starten')).setCta().onClick(async () => { if (await saveMainKey()) this.plugin.openConfigurationTest(); }));
+    new Setting(el).setName(t('Erweiterte Provider-Einstellungen')).setDesc(t('Zeigt individuelle Endpoints und Authentifizierung für lokale oder getrennte Provider.')).addToggle(toggle => toggle
+      .setValue(this.plugin.settings.advancedProviderSettings)
+      .onChange(async value => { this.plugin.settings.advancedProviderSettings = value; await this.plugin.saveSettings(); this.display(); }));
+    if (this.plugin.settings.advancedProviderSettings) this.displayAdvancedProviderSettings(el);
+    new Setting(el).setName(t('Verarbeitung')).setDesc(t('Legt fest, wie neue Aufnahmen bereinigt und in Notizen eingefügt werden.')).setHeading();
     new Setting(el).setName(t('Bereinigungs-Prompt')).setDesc(t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.')).addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); });
     new Setting(el).setName(t('Standard-Prompt wiederherstellen')).setDesc(t('Setzt den Bereinigungs-Prompt für neue Aufnahmen auf die mitgelieferte Vorgabe zurück.')).addButton(button => button.setButtonText(t('Zurücksetzen')).onClick(async () => { this.plugin.settings.prompt = DEFAULT_PROMPT; await this.plugin.saveSettings(); this.display(); }));
     new Setting(el).setName(t('Aufnahme-Button in Notizen anzeigen')).setDesc(t('Der Aufnahmebefehl bleibt über Befehlspalette, Ribbon und mobile Werkzeugleiste verfügbar.')).addToggle(toggle => toggle.setValue(this.plugin.settings.showInlineButton).onChange(async value => { this.plugin.settings.showInlineButton = value; this.plugin.updateAppearance(); await this.plugin.saveSettings(); }));
@@ -400,6 +438,44 @@ class VoiceSettings extends PluginSettingTab {
     new Setting(el).setName(t('Fehler melden')).setDesc(t('Erstellt einen strukturierten Bugreport. Entferne vorher API-Schlüssel und private Notizinhalte.')).addButton(button => button.setButtonText(t('Bugreport öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=bug_report.yml', '_blank')));
     new Setting(el).setName(t('Funktion vorschlagen')).setDesc(t('Beschreibe deinen Anwendungsfall und die gewünschte Verbesserung.')).addButton(button => button.setButtonText(t('Feature-Anfrage öffnen')).onClick(() => window.open('https://github.com/wko/obsidian-voice-notes/issues/new?template=feature_request.yml', '_blank')));
     el.createEl('p', { text: t('Erste Entwicklungsversion: Aufnahmen bei geöffneter App. Displaysperre oder ein vom System beendeter Prozess können die laufende, noch nicht gespeicherte Aufnahme unterbrechen.'), cls: 'voice-append-hint' });
+  }
+  private displayAdvancedProviderSettings(el: HTMLElement) {
+    const endpointDescription = t('Vollständige OpenAI-kompatible API-Basis, z. B. https://api.openai.com/v1. API-Schlüssel gehören nicht in diese URL.');
+    new Setting(el).setName(t('Getrennte Provider verwenden')).setDesc(t('Ermöglicht unterschiedliche Endpoints und Zugangsdaten für Transkription und Bereinigung.')).addToggle(toggle => toggle
+      .setValue(this.plugin.settings.useSeparateProviders)
+      .onChange(async value => {
+        this.plugin.settings.useSeparateProviders = value;
+        if (!value) this.plugin.settings.transcriptionBaseUrl = this.plugin.settings.cleanupBaseUrl;
+        await this.plugin.saveSettings(); this.display();
+      }));
+    const endpoint = (key: 'transcriptionBaseUrl' | 'cleanupBaseUrl', name: string) => new Setting(el).setName(name).setDesc(endpointDescription).addText(text => text
+      .setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL)
+      .onChange(async value => {
+        try {
+          const normalized = normalizeBaseUrl(value); this.plugin.settings[key] = normalized;
+          if (!this.plugin.settings.useSeparateProviders) this.plugin.settings.transcriptionBaseUrl = this.plugin.settings.cleanupBaseUrl = normalized;
+          this.plugin.settings.providerPreset = 'custom'; await this.plugin.saveSettings();
+        } catch { new Notice(t('Ungültige API-Basis-URL.')); text.setValue(this.plugin.settings[key] ?? OPENAI_BASE_URL); }
+      }));
+    if (this.plugin.settings.useSeparateProviders) {
+      endpoint('transcriptionBaseUrl', t('Transkriptions-Provider-Basis-URL'));
+      endpoint('cleanupBaseUrl', t('LLM-Provider-Basis-URL'));
+    } else endpoint('cleanupBaseUrl', t('Gemeinsame Provider-Basis-URL'));
+    new Setting(el).setName(t('LLM-Authentifizierung')).setDesc(t('API-Schlüssel verwendet den oben gespeicherten LLM-Provider-Schlüssel. Ohne Authentifizierung ist für lokale Provider gedacht.')).addDropdown(dropdown => dropdown
+      .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
+      .setValue(this.plugin.settings.cleanupAuthMode ?? 'shared')
+      .onChange(async value => { this.plugin.settings.cleanupAuthMode = value === 'none' ? 'none' : 'shared'; await this.plugin.saveSettings(); }));
+    new Setting(el).setName(t('Transkriptions-Authentifizierung')).setDesc(t('Kann den LLM-Schlüssel teilen, einen eigenen lokalen Schlüssel verwenden oder den Authorization-Header weglassen.')).addDropdown(dropdown => dropdown
+      .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('separate', t('Separaten Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
+      .setValue(this.plugin.settings.transcriptionAuthMode ?? 'shared')
+      .onChange(async value => { this.plugin.settings.transcriptionAuthMode = value === 'separate' || value === 'none' ? value : 'shared'; await this.plugin.saveSettings(); this.display(); }));
+    if (this.plugin.settings.transcriptionAuthMode === 'separate') {
+      let transcriptionKey = this.plugin.transcriptionApiKey.get();
+      new Setting(el).setName(t('Transkriptions-Provider-API-Schlüssel')).setDesc(t('Wird nur für Transkriptionsanfragen verwendet und lokal im Obsidian Secret Storage gespeichert.')).addText(text => {
+        text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
+        text.setPlaceholder(t('Transkriptions-Provider-API-Schlüssel')).setValue(transcriptionKey).onChange(value => { transcriptionKey = value; });
+      }).addButton(button => button.setButtonText(t('Speichern')).onClick(() => { try { this.plugin.transcriptionApiKey.set(transcriptionKey); new Notice(t('API-Schlüssel gespeichert.')); } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); } }));
+    }
   }
 }
 class Outbox extends Modal {

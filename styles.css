@@ -19,6 +19,8 @@
 .voice-append-target { color: var(--text-muted); overflow-wrap: anywhere; }
 .voice-append-status { font-size: 1.3em; font-variant-numeric: tabular-nums; padding: 16px 0; }
 .voice-append-hint { color: var(--text-muted); font-size: var(--font-small); line-height: 1.5; }
+.voice-append-test-status { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: 16px 0; color: var(--text-muted); }
+.voice-append-test-success { color: var(--text-success); font-weight: var(--font-semibold); }
 .voice-append-controls { display: flex; gap: 12px; flex-wrap: wrap; }
 .voice-append-controls button, .voice-append-job button { min-height: 44px; }
 .voice-append-prompt { width: min(460px, 100%); min-height: 170px; }

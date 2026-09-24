@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiKey } from '../src/api-key';
+import { ApiKey, DeviceSecret } from '../src/api-key';
 function fixture() { const values = new Map<string, string>(); return { values, store: { getSecret: (id: string) => values.get(id) ?? null, setSecret: (id: string, value: string) => { values.set(id, value); }, listSecrets: () => [...values.keys()] } }; }
 test('one string is saved and restored through the plugin-owned secret slot', () => {
   const f = fixture(); const key = new ApiKey(f.store, 'vault'); key.set('  sk-test  ');
@@ -25,4 +25,9 @@ test('migrates a unique old plugin key but never guesses among several', () => {
   assert.equal(f.values.get('voice-append-api-key'), 'old-key');
   const ambiguous = fixture(); ambiguous.values.set('voice-append-first', 'first'); ambiguous.values.set('voice-append-second', 'second');
   assert.equal(new ApiKey(ambiguous.store, 'new-id').get(), '');
+});
+test('separate device secret never collides with the shared provider key', () => {
+  const f = fixture(); const shared = new ApiKey(f.store, 'vault'); const transcription = new DeviceSecret(f.store, 'voice-append-transcription-api-key');
+  shared.set('shared-key'); transcription.set('speech-key');
+  assert.equal(shared.get(), 'shared-key'); assert.equal(transcription.get(), 'speech-key'); assert.equal(f.values.size, 2);
 });

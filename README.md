@@ -17,8 +17,8 @@ Voice Append records a thought, transcribes it through a configurable transcript
 ## Requirements
 
 - Obsidian 1.11.4 or later
-- An API key accepted by the configured OpenAI-compatible transcription and cleanup endpoints
-- Internet access while processing a recording
+- Credentials accepted by the configured providers, unless a local endpoint requires no authentication
+- Network access to the configured providers while processing a recording
 
 The defaults use `https://api.openai.com/v1`, `gpt-transcribe` for transcription, and `gpt-5.6-luna` for cleanup. Model availability depends on your provider account and may change over time.
 
@@ -37,10 +37,11 @@ Reload Obsidian, open **Settings → Community plugins**, and enable **Voice App
 ## Setup and use
 
 1. Open **Settings → Voice Append**.
-2. Enter one API key and select **Save** on each device. The plugin stores the key locally through Obsidian Secret Storage; it is not synced with the vault.
-3. Configure independent OpenAI-compatible base URLs and models for transcription and cleanup, plus the cleanup and title prompts, if needed. Enter the complete API base (for example `https://api.openai.com/v1`), not a request path. The same stored key is used for both endpoints.
-4. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
-5. Select **Stop & append** when finished. The recording is saved locally before network processing starts, and the note scrolls to the processing indicator.
+2. Choose the **OpenAI**, **OpenRouter**, or **Custom** preset, enter the LLM provider API key, and select **Save** on each device. Secrets are stored locally through Obsidian Secret Storage and are not synced with the vault.
+3. Confirm the two model names and select **Test configuration**. The test sends a bundled two-second sample through transcription and cleanup without changing a note or creating a saved recording.
+4. For local or mixed providers, open **Advanced provider settings** to configure separate endpoints and shared, separate, or no authentication.
+5. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
+6. Select **Stop & append** when finished. The recording is saved locally before network processing starts, and the note scrolls to the processing indicator.
 
 Open **Recordings and status** from the plugin settings or command palette to retry a failed job, download its audio, reassign its target note, or delete it.
 
@@ -52,6 +53,9 @@ Open **Recordings and status** from the plugin settings or command palette to re
 - **Dated heading** adds a timestamped heading to each append.
 - **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
 - **Familiar names and concepts** supplies up to 2,000 characters of preferred spellings and terminology to transcription and cleanup.
+- **Provider preset** keeps the normal setup compact. OpenAI and OpenRouter fill known endpoints and model defaults; Custom preserves manual values.
+- **Test configuration** runs the exact configured transcription and cleanup calls with bundled audio. It does not read or modify a note. Normal provider charges may apply.
+- **Advanced provider settings** supports separate transcription and LLM endpoints. Transcription can share the LLM key, use its own device-local key, or omit authentication. LLM requests can use the main key or omit authentication.
 - **Transcription provider base URL** and **LLM provider base URL** may point to different OpenAI-compatible API roots. Transcription uses `/audio/transcriptions`; cleanup and optional title generation use `/chat/completions` with Structured Outputs. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
 
 Each job keeps a snapshot of its processing settings, so changing settings does not alter recordings that are already queued.
@@ -60,11 +64,11 @@ Each job keeps a snapshot of its processing settings, so changing settings does 
 
 OpenRouter can handle both steps with the plugin's single API key. Set both provider base URLs to `https://openrouter.ai/api/v1`, use an OpenRouter key, and select OpenRouter model slugs. For transcription, `openai/whisper-1` is one documented option. For cleanup, choose a model that supports structured outputs through Chat Completions. Availability and model support can change; see OpenRouter's [structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs) and [transcription guide](https://openrouter.ai/blog/tutorials/transcription-on-openrouter/).
 
-The single saved key is sent to both configured provider base URLs. Using two providers that require different keys is therefore not supported by the current settings.
+The default setup shares one key. Advanced settings can store a separate transcription key or omit authentication for a local endpoint.
 
 ## Privacy and data handling
 
-Voice Append sends new audio to the configured transcription provider and its transcript to the configured LLM provider. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
+Voice Append sends new audio to the configured transcription provider and its transcript to the configured LLM provider. The configuration test sends only its bundled synthetic sample and generated transcript. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
 
 The API key is stored using Obsidian Secret Storage under a stable, plugin-owned name. Existing keys stored under an earlier vault-ID-based name are migrated when unambiguous. Endpoint URLs and models are ordinary plugin settings; no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. New audio is read and stored as bytes before the plugin reports it saved. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
 

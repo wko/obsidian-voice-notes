@@ -16,6 +16,6 @@ const deploy = { name: 'install-build', setup(build) { build.onEnd(async result 
   for (const file of ['main.js', 'manifest.json', 'styles.css']) await copyFile(new URL(file, import.meta.url), join(destination, file));
   console.log(`Voice Append built and installed in ${destination}. Reload the plugin to use the changes.`);
 }); }};
-const context = await esbuild.context({ entryPoints: ['src/main.ts'], bundle: true, format: 'cjs', target: 'es2020', platform: 'browser', outfile: release ? 'dist/main.js' : 'main.js', sourcemap: release ? false : 'inline', define: { VOICE_APPEND_LAB: String(!release) }, external: ['obsidian', 'electron', '@codemirror/state', '@codemirror/view'], plugins: [deploy] });
+const context = await esbuild.context({ entryPoints: ['src/main.ts'], bundle: true, format: 'cjs', target: 'es2020', platform: 'browser', outfile: release ? 'dist/main.js' : 'main.js', sourcemap: release ? false : 'inline', loader: { '.wav': 'base64' }, define: { VOICE_APPEND_LAB: String(!release) }, external: ['obsidian', 'electron', '@codemirror/state', '@codemirror/view'], plugins: [deploy] });
 if (process.argv.includes('--watch')) await context.watch();
 else { await context.rebuild(); await context.dispose(); }

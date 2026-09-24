@@ -1,4 +1,9 @@
 export interface SecretStore { getSecret(id: string): string | null; setSecret(id: string, value: string): void; listSecrets?(): string[]; }
+export class DeviceSecret {
+  constructor(private store: SecretStore, readonly id: string) {}
+  get(): string { return this.store.getSecret(this.id) ?? ''; }
+  set(value: string) { this.store.setSecret(this.id, value.trim()); }
+}
 /** A device-local secret name must not depend on a vault ID stored in synced settings. */
 export class ApiKey {
   readonly id = 'voice-append-api-key';

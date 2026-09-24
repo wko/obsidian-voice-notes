@@ -6,6 +6,14 @@ test('missing key never sends a request', async () => {
   const provider = new OpenAIProvider(() => null, async () => { assert.fail('network request'); });
   await assert.rejects(provider.transcribe(new Blob(['a']), 'model'), /Schlüssel/);
 });
+test('provider authentication can be shared, separate, or omitted', async () => {
+  const headers: Array<Record<string, string>> = [];
+  const provider = new OpenAIProvider(() => 'shared-key', async request => { headers.push(request.headers); return { status: 200, json: { text: 'Text' } }; }, () => 'speech-key');
+  await provider.transcribe(new Blob(['a']), 'model', undefined, undefined, 'shared');
+  await provider.transcribe(new Blob(['a']), 'model', undefined, undefined, 'separate');
+  await provider.transcribe(new Blob(['a']), 'model', undefined, undefined, 'none');
+  assert.equal(headers[0].Authorization, 'Bearer shared-key'); assert.equal(headers[1].Authorization, 'Bearer speech-key'); assert.equal('Authorization' in headers[2], false);
+});
 test('transcription sends binary multipart with model and original bytes', async () => {
   const provider = new OpenAIProvider(() => 'test-key', async request => {
     assert.equal(request.url, 'https://api.openai.com/v1/audio/transcriptions');

@@ -1,5 +1,5 @@
 import { t } from './i18n';
-import { DEFAULT_TITLE_PROMPT, type Cleaner, type CleanupRequestContext, type Transcriber } from './core';
+import { DEFAULT_TITLE_PROMPT, type Cleaner, type CleanupRequestContext, type ProviderAuthMode, type Transcriber } from './core';
 import { cleanupInput, MAX_VOCABULARY_CHARS } from './context';
 
 export interface HttpRequest {
@@ -42,17 +42,17 @@ function chatCompletionText(response: JsonObject): string {
 }
 
 export class OpenAIProvider implements Transcriber, Cleaner {
-  constructor(private key: () => string | null, private transport: Transport) {}
+  constructor(private key: () => string | null, private transport: Transport, private transcriptionKey: () => string | null = key) {}
 
-  private async request(baseUrl: string | undefined, path: string, body: string | ArrayBuffer, contentType: string): Promise<unknown> {
-    const key = this.key();
-    if (!key) throw new Error(t('Bitte in den Voice-Append-Einstellungen einen LLM-Provider-API-Schlüssel eingeben.'));
+  private async request(baseUrl: string | undefined, path: string, body: string | ArrayBuffer, contentType: string, authMode: ProviderAuthMode, kind: 'transcription' | 'cleanup'): Promise<unknown> {
+    const key = authMode === 'none' ? '' : authMode === 'separate' && kind === 'transcription' ? this.transcriptionKey() : this.key();
+    if (authMode !== 'none' && !key) throw new Error(t('Bitte in den Voice-Append-Einstellungen den benötigten Provider-API-Schlüssel eingeben.'));
     const url = `${normalizeBaseUrl(baseUrl)}/${path}`;
     let response: HttpResponse;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       response = await Promise.race([
-        this.transport({ url, method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': contentType }, body, throw: false }),
+        this.transport({ url, method: 'POST', headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': contentType }, body, throw: false }),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 120000); }),
       ]);
     } catch {
@@ -60,13 +60,13 @@ export class OpenAIProvider implements Transcriber, Cleaner {
     } finally {
       if (timer) clearTimeout(timer);
     }
-    if (response.status === 401) throw new Error(t('LLM-Provider-API-Schlüssel ungültig. Bitte Einstellungen prüfen.'));
+    if (response.status === 401) throw new Error(t('Provider-API-Schlüssel ungültig. Bitte Einstellungen prüfen.'));
     if (response.status === 429) throw new Error(t('Provider-Limit erreicht. Bitte später erneut versuchen oder Guthaben prüfen.'));
     if (response.status < 200 || response.status >= 300) throw new Error(t('Provider-Anfrage fehlgeschlagen ({status}). Bitte Modell und Verbindung prüfen.', { status: response.status }));
     return response.json;
   }
 
-  async transcribe(audio: Blob, model: string, vocabulary?: string, baseUrl?: string) {
+  async transcribe(audio: Blob, model: string, vocabulary?: string, baseUrl?: string, authMode: ProviderAuthMode = 'shared') {
     const ext = audio.type.includes('mp4') || audio.type.includes('m4a') ? 'm4a' : audio.type.includes('wav') ? 'wav' : 'webm';
     let bytes: ArrayBuffer;
     try {
@@ -83,12 +83,12 @@ export class OpenAIProvider implements Transcriber, Cleaner {
     let multipartBytes: ArrayBuffer;
     try { multipartBytes = await multipart.arrayBuffer(); }
     catch { throw new Error(t('Gespeicherte Audiodaten können nicht gelesen werden. Bitte Audio-Download versuchen; falls er fehlschlägt, ist die Aufnahme möglicherweise beschädigt.')); }
-    const result = await this.request(baseUrl, 'audio/transcriptions', multipartBytes, multipart.headers.get('content-type')!);
+    const result = await this.request(baseUrl, 'audio/transcriptions', multipartBytes, multipart.headers.get('content-type')!, authMode, 'transcription');
     if (!isObject(result) || typeof result.text !== 'string') throw new Error(t('Unerwartete Transkriptionsantwort.'));
     return result.text;
   }
 
-  async clean(transcript: string, model: string, prompt: string, context?: CleanupRequestContext, baseUrl?: string) {
+  async clean(transcript: string, model: string, prompt: string, context?: CleanupRequestContext, baseUrl?: string, authMode: ProviderAuthMode = 'shared') {
     const requestTitle = !!context?.requestTitle;
     const instructions = [prompt];
     if (requestTitle) instructions.push(`Title instructions:\n${context?.titlePrompt?.trim() || DEFAULT_TITLE_PROMPT}`);
@@ -105,7 +105,7 @@ export class OpenAIProvider implements Transcriber, Cleaner {
         { role: 'user', content: cleanupInput(transcript, context) },
       ],
       response_format: { type: 'json_schema', json_schema: { name: 'voice_append', strict: true, schema: { type: 'object', properties, required, additionalProperties: false } } },
-    }), 'application/json');
+    }), 'application/json', authMode, 'cleanup');
     if (!isObject(result)) throw new Error(t('Unerwartete Bereinigungsantwort.'));
     const choice = Array.isArray(result.choices) && isObject(result.choices[0]) ? result.choices[0] : undefined;
     if (choice && typeof choice.finish_reason === 'string' && choice.finish_reason !== 'stop') throw new Error(t('Bereinigung wurde nicht vollständig abgeschlossen. Bitte erneut versuchen.'));
