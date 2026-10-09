@@ -2,6 +2,12 @@
 
 All notable changes to Voice Append are documented here.
 
+## 1.0.2
+
+- Select existing or new provider secrets through Obsidian's native keychain picker, with independent device-local selections for LLM and transcription providers.
+- Stop configuration tests from saving empty or stale API key inputs.
+- Never recover a separate transcription credential as the main provider key.
+
 ## 1.0.1
 
 - Make production builds deterministic so published assets match the repository build.

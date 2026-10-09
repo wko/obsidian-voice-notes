@@ -41,7 +41,7 @@ Reload Obsidian, open **Settings → Community plugins**, and enable **Voice App
 ## Setup and use
 
 1. Open **Settings → Voice Append**.
-2. Choose the **OpenAI**, **OpenRouter**, or **Custom** preset, enter the LLM provider API key, and select **Save** on each device. Secrets are stored locally through Obsidian Secret Storage and are not synced with the vault.
+2. Choose the **OpenAI**, **OpenRouter**, or **Custom** preset, then select an existing LLM provider secret or create one with Obsidian's keychain picker. The key and its selection stay local to each device; configure them once on desktop and once on mobile. Existing Voice Append keys remain selected automatically.
 3. Confirm the two model names and select **Test configuration**. The test sends a bundled two-second sample through transcription and cleanup without changing a note or creating a saved recording.
 4. For local or mixed providers, open **Advanced provider settings** to configure separate endpoints and shared, separate, or no authentication.
 5. Open a Markdown note and select **Append via voice** at the end of the note. You can also run the command from the command palette, ribbon, or mobile toolbar.
@@ -58,7 +58,7 @@ Open **Recordings and status** from the plugin settings or command palette to re
 - **Use note context for cleanup** sends up to 16,000 characters from the target note, excluding frontmatter and HTML comments. The note is reference material; only the new transcript is rewritten.
 - **Familiar names and concepts** supplies up to 2,000 characters of preferred spellings and terminology to transcription and cleanup.
 - **Provider preset** keeps the normal setup compact. OpenAI and OpenRouter fill known endpoints and model defaults; Custom preserves manual values.
-- **Test configuration** runs the exact configured transcription and cleanup calls with bundled audio. It does not read or modify a note. Normal provider charges may apply.
+- **Test configuration** runs the exact configured transcription and cleanup calls with bundled audio and the currently selected secrets. It does not save or overwrite keys, or read or modify a note. Normal provider charges may apply.
 - **Advanced provider settings** supports separate transcription and LLM endpoints. Transcription can share the LLM key, use its own device-local key, or omit authentication. LLM requests can use the main key or omit authentication.
 - **Transcription provider base URL** and **LLM provider base URL** may point to different OpenAI-compatible API roots. Transcription uses `/audio/transcriptions`; cleanup and optional title generation use `/chat/completions` with Structured Outputs. URLs must be plain `http` or `https` API bases and cannot contain credentials, query strings, or fragments. Keep API keys in Secret Storage, never in a URL.
 
@@ -74,7 +74,7 @@ The default setup shares one key. Advanced settings can store a separate transcr
 
 Voice Append sends new audio to the configured transcription provider and its transcript to the configured LLM provider. The configuration test sends only its bundled synthetic sample and generated transcript. Note context is sent only when **Use note context for cleanup** is enabled. Familiar names and concepts are sent when that field is populated. Cleanup requests use `store: false`.
 
-The API key is stored using Obsidian Secret Storage under a stable, plugin-owned name. Existing keys stored under an earlier vault-ID-based name are migrated when unambiguous. Endpoint URLs and models are ordinary plugin settings; no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. New audio is read and stored as bytes before the plugin reports it saved. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
+API keys are stored in Obsidian Secret Storage. You can select an existing secret from Obsidian's keychain or create one with its native picker. Only the selected secret's name is saved in device-local preferences, outside synced plugin settings. Existing plugin-owned keys and unambiguous older vault-ID-based keys remain usable. A missing or cleared selection never silently switches to another provider's key. Endpoint URLs and models are ordinary plugin settings; no raw key is written there. Recordings, transcripts, cleanup results, and the local append journal are stored in IndexedDB on the device where they were created. New audio is read and stored as bytes before the plugin reports it saved. They are not synced through the vault. Audio from completed jobs is removed after seven days; pending and failed jobs remain until completed or deleted.
 
 Review the privacy and data-retention policies of your configured providers before using the plugin with sensitive material.
 

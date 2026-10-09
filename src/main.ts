@@ -1,5 +1,5 @@
 import { t, setLanguage, getLocale, type Message } from './i18n';
-import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App, type SettingDefinition, type SettingDefinitionItem } from 'obsidian';
+import { MarkdownView, Modal, Notice, Plugin, PluginSettingTab, SecretComponent, Setting, TFile, requestUrl, getLanguage, normalizePath, setIcon, type TAbstractFile, type App, type SettingDefinition, type SettingDefinitionItem } from 'obsidian';
 import { DEFAULT_PROMPT, DEFAULT_TITLE_PROMPT, processJob, type Job } from './core';
 import { footerExtension, voiceButton } from './editor';
 import { OPENAI_BASE_URL, OpenAIProvider, normalizeBaseUrl } from './provider';
@@ -40,8 +40,10 @@ export default class VoiceAppend extends Plugin {
     if (!('transcriptionBaseUrl' in savedSettings) || !('cleanupBaseUrl' in savedSettings) || savedSettings.settingsVersion !== this.settings.settingsVersion) await this.saveSettings();
     this.updateAppearance();
     if (!this.settings.vaultId) { this.settings.vaultId = crypto.randomUUID(); await this.saveSettings(); }
-    this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId);
-    this.transcriptionApiKey = new DeviceSecret(this.app.secretStorage, 'voice-append-transcription-api-key');
+    this.apiKey = new ApiKey(this.app.secretStorage, this.settings.vaultId, this.settings.secretId, this.app);
+    this.transcriptionApiKey = new DeviceSecret(this.app.secretStorage, 'voice-append-transcription-api-key', this.app);
+    // Recover old plugin-owned keys before displaying the native keychain picker.
+    this.apiKey.get();
     this.store = await JobStore.open(this.settings.vaultId);
     for (const job of await this.store.list()) { this.cacheProgress(job); const file = this.app.vault.getAbstractFileByPath(job.targetPath); if (file instanceof TFile) this.targetFiles.set(job.id, file); }
     this.provider = new OpenAIProvider(() => this.apiKey.get(), request => requestUrl(request), () => this.transcriptionApiKey.get());
@@ -384,13 +386,11 @@ class VoiceSettings extends PluginSettingTab {
     }
   }
   private groups(): VoiceSettingGroupSpec[] {
-    let keyValue = this.plugin.apiKey.get();
-    let transcriptionKey = this.plugin.transcriptionApiKey.get();
-    const saveMainKey = async () => {
-      try {
-        this.plugin.apiKey.set(keyValue); delete this.plugin.settings.secretId; await this.plugin.saveSettings();
-        new Notice(t('API-Schlüssel gespeichert.')); return true;
-      } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); return false; }
+    const secretPicker = (setting: Setting, key: ApiKey | DeviceSecret) => {
+      setting.addComponent(el => new SecretComponent(this.app, el).setValue(key.id).onChange(value => {
+        try { key.select(value ?? ''); }
+        catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); this.refreshSettings(); }
+      }));
     };
     const endpointDescription = t('Vollständige OpenAI-kompatible API-Basis, z. B. https://api.openai.com/v1. API-Schlüssel gehören nicht in diese URL.');
     const endpoint = (key: 'transcriptionBaseUrl' | 'cleanupBaseUrl', name: string, visible: () => boolean): VoiceSettingSpec => ({
@@ -408,13 +408,10 @@ class VoiceSettings extends PluginSettingTab {
       { name: t('Provider-Voreinstellung'), desc: t('Setzt passende Endpoints und Standardmodelle. Custom behält manuell konfigurierte Werte bei.'), render: setting => { setting.addDropdown(dropdown => dropdown
         .addOption('openai', 'OpenAI').addOption('openrouter', t('OpenRouter')).addOption('custom', t('Benutzerdefiniert'))
         .setValue(this.plugin.settings.providerPreset).onChange(async value => { applyPreset(this.plugin.settings, value as ProviderPreset); await this.plugin.saveSettings(); this.refreshSettings(); })); } },
-      { name: t('LLM-Provider-API-Schlüssel'), desc: t('Wird für den LLM-Provider und standardmäßig auch für den Transkriptions-Provider verwendet. Auf jedem Gerät einmal lokal speichern; Obsidian Sync überträgt ihn nicht.'), render: setting => { setting.addText(text => {
-        text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
-        text.setPlaceholder(t('LLM-Provider-API-Schlüssel')).setValue(keyValue).onChange(value => { keyValue = value; });
-      }).addButton(button => button.setButtonText(t('Speichern')).onClick(saveMainKey)); } },
+      { name: t('LLM-Provider-API-Schlüssel'), desc: t('Vorhandenes Obsidian-Secret auswählen oder neu anlegen. Schlüssel und Auswahl bleiben lokal auf diesem Gerät. Wird standardmäßig auch für die Transkription verwendet.'), render: setting => secretPicker(setting, this.plugin.apiKey) },
       { name: t('Transkriptionsmodell'), desc: t('Modellname beim Transkriptions-Provider. Gilt für neue Aufnahmen.'), render: setting => { setting.addText(text => text.setValue(this.plugin.settings.transcriptionModel).onChange(async value => { this.plugin.settings.transcriptionModel = value.trim() || DEFAULTS.transcriptionModel; await this.plugin.saveSettings(); })); } },
       { name: t('LLM-Modell'), desc: t('Modellname beim LLM-Provider für Bereinigung und optionale Titel. Gilt für neue Aufnahmen.'), render: setting => { setting.addText(text => text.setValue(this.plugin.settings.cleanupModel).onChange(async value => { this.plugin.settings.cleanupModel = value.trim() || DEFAULTS.cleanupModel; await this.plugin.saveSettings(); })); } },
-      { name: t('Konfiguration testen'), desc: t('Speichert den eingegebenen Schlüssel und prüft Transkription sowie Bereinigung mit einer kurzen mitgelieferten Testaufnahme. Verändert keine Notiz.'), render: setting => { setting.addButton(button => button.setButtonText(t('Test starten')).setCta().onClick(async () => { if (await saveMainKey()) this.plugin.openConfigurationTest(); })); } },
+      { name: t('Konfiguration testen'), desc: t('Prüft Transkription sowie Bereinigung mit den ausgewählten Schlüsseln und einer kurzen mitgelieferten Testaufnahme. Verändert keine Notiz und speichert keine Schlüssel.'), render: setting => { setting.addButton(button => button.setButtonText(t('Test starten')).setCta().onClick(() => this.plugin.openConfigurationTest())); } },
       { name: t('Erweiterte Provider-Einstellungen'), desc: t('Zeigt individuelle Endpoints und Authentifizierung für lokale oder getrennte Provider.'), render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.advancedProviderSettings).onChange(async value => { this.plugin.settings.advancedProviderSettings = value; await this.plugin.saveSettings(); this.refreshSettings(); })); } },
       { name: t('Getrennte Provider verwenden'), desc: t('Ermöglicht unterschiedliche Endpoints und Zugangsdaten für Transkription und Bereinigung.'), visible: () => this.plugin.settings.advancedProviderSettings, render: setting => { setting.addToggle(toggle => toggle.setValue(this.plugin.settings.useSeparateProviders).onChange(async value => {
         this.plugin.settings.useSeparateProviders = value;
@@ -429,10 +426,7 @@ class VoiceSettings extends PluginSettingTab {
       { name: t('Transkriptions-Authentifizierung'), desc: t('Kann den LLM-Schlüssel teilen, einen eigenen lokalen Schlüssel verwenden oder den Authorization-Header weglassen.'), visible: () => this.plugin.settings.advancedProviderSettings, render: setting => { setting.addDropdown(dropdown => dropdown
         .addOption('shared', t('LLM-Provider-API-Schlüssel verwenden')).addOption('separate', t('Separaten Schlüssel verwenden')).addOption('none', t('Keine Authentifizierung'))
         .setValue(this.plugin.settings.transcriptionAuthMode ?? 'shared').onChange(async value => { this.plugin.settings.transcriptionAuthMode = value === 'separate' || value === 'none' ? value : 'shared'; await this.plugin.saveSettings(); this.refreshSettings(); })); } },
-      { name: t('Transkriptions-Provider-API-Schlüssel'), desc: t('Wird nur für Transkriptionsanfragen verwendet und lokal im Obsidian Secret Storage gespeichert.'), visible: () => this.plugin.settings.advancedProviderSettings && this.plugin.settings.transcriptionAuthMode === 'separate', render: setting => { setting.addText(text => {
-        text.inputEl.type = 'password'; text.inputEl.autocomplete = 'off'; text.inputEl.spellcheck = false;
-        text.setPlaceholder(t('Transkriptions-Provider-API-Schlüssel')).setValue(transcriptionKey).onChange(value => { transcriptionKey = value; });
-      }).addButton(button => button.setButtonText(t('Speichern')).onClick(() => { try { this.plugin.transcriptionApiKey.set(transcriptionKey); new Notice(t('API-Schlüssel gespeichert.')); } catch { new Notice(t('API-Schlüssel konnte nicht gespeichert werden.')); } })); } },
+      { name: t('Transkriptions-Provider-API-Schlüssel'), desc: t('Obsidian-Secret nur für die Transkription auswählen oder anlegen. Schlüssel und Auswahl bleiben lokal auf diesem Gerät.'), visible: () => this.plugin.settings.advancedProviderSettings && this.plugin.settings.transcriptionAuthMode === 'separate', render: setting => secretPicker(setting, this.plugin.transcriptionApiKey) },
     ];
     const processingItems: VoiceSettingSpec[] = [
       { name: t('Bereinigungs-Prompt'), desc: t('Gilt für neue Aufnahmen. Bereits gespeicherte Aufnahmen behalten ihren ursprünglichen Prompt.'), render: setting => { setting.addTextArea(text => { text.inputEl.rows = 9; text.inputEl.addClass('voice-append-prompt'); text.setValue(this.plugin.settings.prompt).onChange(async value => { this.plugin.settings.prompt = value || DEFAULT_PROMPT; await this.plugin.saveSettings(); }); }); } },
